@@ -1,6 +1,6 @@
 import React from 'react';
 import { SchemaComponent, useAPIClient, useRequest } from '@nocobase/client';
-import { Button, Table, Space, Modal, Form, Input, message } from 'antd';
+import { Button, Table, Space, Modal, Form, Input, message, Checkbox, Spin, Tag } from 'antd';
 
 const schema = {
   type: 'void',
@@ -97,10 +97,154 @@ function CreatePlatformButton() {
   );
 }
 
+interface CollectionInfo {
+  name: string;
+  title: string;
+  hasNameField: boolean;
+}
+
+function SyncModal({
+  open,
+  platform,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  platform: any;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const api = useAPIClient();
+  const [collections, setCollections] = React.useState<CollectionInfo[]>([]);
+  const [selected, setSelected] = React.useState<string[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [syncing, setSyncing] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      setSelected([]);
+      setLoading(true);
+      api
+        .request({
+          url: 'databridge:listCollections',
+          method: 'get',
+        })
+        .then((res) => {
+          setCollections(res?.data?.data || []);
+        })
+        .catch((err) => {
+          console.error('Failed to fetch collections:', err);
+          message.error('Failed to load collections');
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [open, api]);
+
+  const handleSync = async () => {
+    if (selected.length === 0) {
+      message.warning('Please select at least one collection');
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const res = await api.request({
+        url: `databridge_platforms:sync?filterByTk=${platform.id}`,
+        method: 'post',
+        data: { collections: selected },
+      });
+
+      const { synced, errors } = res?.data?.data || {};
+      if (errors && errors.length > 0) {
+        message.warning(`Synced ${synced} records with ${errors.length} warnings`);
+      } else {
+        message.success(`Synced ${synced} records successfully`);
+      }
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      message.error(err.response?.data?.errors?.[0]?.message || 'Failed to sync');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleToggle = (collName: string) => {
+    setSelected((prev) =>
+      prev.includes(collName) ? prev.filter((n) => n !== collName) : [...prev, collName]
+    );
+  };
+
+  return (
+    <Modal
+      title={`Sync Collections to "${platform?.name}"`}
+      open={open}
+      onCancel={onClose}
+      onOk={handleSync}
+      okText="Sync Now"
+      confirmLoading={syncing}
+      width={500}
+    >
+      <p style={{ marginBottom: 16 }}>Select collections to sync:</p>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 24 }}>
+          <Spin />
+        </div>
+      ) : (
+        <div
+          style={{
+            border: '1px solid #d9d9d9',
+            borderRadius: 6,
+            maxHeight: 300,
+            overflowY: 'auto',
+          }}
+        >
+          {collections.map((coll) => (
+            <div
+              key={coll.name}
+              style={{
+                padding: '8px 12px',
+                borderBottom: '1px solid #f0f0f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                opacity: coll.hasNameField ? 1 : 0.5,
+              }}
+            >
+              <Checkbox
+                disabled={!coll.hasNameField}
+                checked={selected.includes(coll.name)}
+                onChange={() => handleToggle(coll.name)}
+              >
+                {coll.title}
+                {coll.name !== coll.title && (
+                  <span style={{ color: '#999', marginLeft: 8 }}>({coll.name})</span>
+                )}
+              </Checkbox>
+              {!coll.hasNameField && (
+                <Tag color="default" style={{ marginLeft: 8 }}>
+                  no name field
+                </Tag>
+              )}
+            </div>
+          ))}
+          {collections.length === 0 && (
+            <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>
+              No collections found
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function PlatformsTable() {
   const api = useAPIClient();
   const [platforms, setPlatforms] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [syncModalOpen, setSyncModalOpen] = React.useState(false);
+  const [selectedPlatform, setSelectedPlatform] = React.useState<any>(null);
 
   const fetchPlatforms = React.useCallback(async () => {
     try {
@@ -148,6 +292,11 @@ function PlatformsTable() {
     });
   };
 
+  const handleSync = (platform: any) => {
+    setSelectedPlatform(platform);
+    setSyncModalOpen(true);
+  };
+
   const columns = [
     { title: 'Name', dataIndex: 'name', key: 'name' },
     { title: 'Slug', dataIndex: 'slug', key: 'slug' },
@@ -156,9 +305,12 @@ function PlatformsTable() {
     {
       title: 'Actions',
       key: 'actions',
-      width: 100,
+      width: 150,
       render: (_: any, record: any) => (
         <Space>
+          <Button size="small" onClick={() => handleSync(record)}>
+            Sync
+          </Button>
           <Button size="small" danger onClick={() => handleDelete(record.id)}>
             Delete
           </Button>
@@ -168,13 +320,21 @@ function PlatformsTable() {
   ];
 
   return (
-    <Table
-      rowKey="id"
-      loading={loading}
-      dataSource={platforms}
-      columns={columns}
-      pagination={false}
-    />
+    <>
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={platforms}
+        columns={columns}
+        pagination={false}
+      />
+      <SyncModal
+        open={syncModalOpen}
+        platform={selectedPlatform}
+        onClose={() => setSyncModalOpen(false)}
+        onSuccess={fetchPlatforms}
+      />
+    </>
   );
 }
 

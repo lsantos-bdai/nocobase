@@ -21,6 +21,13 @@ export async function syncPlatform(ctx: Context, next: Next) {
     ctx.throw(404, 'Platform not found');
   }
 
+  // Ensure the lookup collection table exists
+  const lookupCollection = ctx.db.getCollection(platform.collectionName);
+  if (!lookupCollection) {
+    ctx.throw(500, `Lookup collection '${platform.collectionName}' not found. Please recreate the platform.`);
+  }
+  await lookupCollection.sync();
+
   // Validate all collections exist and have 'name' field
   for (const collName of collections) {
     const coll = ctx.db.getCollection(collName);
