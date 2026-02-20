@@ -1,0 +1,19 @@
+{
+  "Databridge": "Databridge",
+  "Databridge Platforms": "Databridge Platforms",
+  "Platforms": "Platforms",
+  "Create Platform": "Create Platform",
+  "Name": "Name",
+  "Slug": "Slug",
+  "Description": "Description",
+  "Collection": "Collection",
+  "Actions": "Actions",
+  "Delete": "Delete",
+  "Sync": "Sync",
+  "Platform created successfully": "Platform created successfully",
+  "Platform deleted": "Platform deleted",
+  "Failed to create platform": "Failed to create platform",
+  "Failed to delete platform": "Failed to delete platform",
+  "This will delete the platform and its lookup collection. Are you sure?": "This will delete the platform and its lookup collection. Are you sure?",
+  "Delete Platform": "Delete Platform"
+}
