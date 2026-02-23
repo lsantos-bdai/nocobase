@@ -10,7 +10,9 @@ export default {
     '/databridge:lookup': {
       get: {
         tags: ['databridge'],
-        summary: 'Look up an asset by platform and name',
+        summary: 'Look up assets by platform and name(s)',
+        description:
+          'Look up one or more assets by name. Supports relation traversal to recursively fetch related assets.',
         parameters: [
           {
             name: 'platform',
@@ -23,30 +25,70 @@ export default {
             name: 'asset_name',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: 'spot_arm_v2' },
-            description: 'Asset name',
+            schema: {
+              oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              example: 'spot_arm_v2',
+            },
+            description: 'Asset name(s) to look up. Can be a single name or multiple names.',
+          },
+          {
+            name: 'get_relations',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean', default: false, example: false },
+            description: 'If true, recursively fetch related assets registered in the same platform.',
+          },
+          {
+            name: 'relation_depth',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 0, example: 1 },
+            description:
+              'How deep to traverse relations (only used when get_relations=true). 1 = direct relations only.',
           },
         ],
         responses: {
           200: {
-            description: 'Asset found',
+            description: 'Assets found (keyed by asset name)',
             content: {
               'application/json': {
                 schema: {
                   type: 'object',
-                  properties: {
-                    platform: { type: 'string', example: 'models' },
-                    asset_name: { type: 'string', example: 'spot_arm_v2' },
-                    collection: { type: 'string', example: 'Robots' },
-                    data: {
-                      type: 'object',
-                      description:
-                        'Asset data with resolved field names (from field titles, normalized to snake_case) and relation values (fetched from related records)',
-                      example: {
+                  additionalProperties: {
+                    type: 'object',
+                    properties: {
+                      platform: { type: 'string', example: 'models' },
+                      collection: { type: 'string', example: 'Robots' },
+                      data: {
+                        type: 'object',
+                        description:
+                          'Asset data with resolved field names (from field titles, normalized to snake_case) and relation values (fetched from related records)',
+                        example: {
+                          name: 'spot_arm_v2',
+                          robot_model: 'Franka Research 3',
+                          serial_number: 'SN-001234',
+                          status: 'active',
+                        },
+                      },
+                    },
+                  },
+                  example: {
+                    spot_arm_v2: {
+                      platform: 'models',
+                      collection: 'Robots',
+                      data: {
                         name: 'spot_arm_v2',
                         robot_model: 'Franka Research 3',
                         serial_number: 'SN-001234',
                         status: 'active',
+                      },
+                    },
+                    'Franka Research 3': {
+                      platform: 'models',
+                      collection: 'Robot Models',
+                      data: {
+                        name: 'Franka Research 3',
+                        manufacturer: 'Franka Emika',
                       },
                     },
                   },
@@ -55,7 +97,6 @@ export default {
             },
           },
           400: { description: 'Missing required parameters' },
-          404: { description: 'Platform or asset not found' },
         },
       },
     },

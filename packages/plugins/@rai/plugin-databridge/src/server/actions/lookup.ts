@@ -52,56 +52,135 @@ function resolveData(collection: Collection, rawData: Record<string, unknown>): 
   return resolved;
 }
 
+/**
+ * Extract potential relation names from resolved data.
+ * Looks for string values and string arrays that could be asset names.
+ */
+function extractRelationNames(data: Record<string, unknown>): string[] {
+  const names: string[] = [];
+  for (const value of Object.values(data)) {
+    if (typeof value === 'string' && value) {
+      names.push(value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === 'string' && item) {
+          names.push(item);
+        }
+      }
+    }
+  }
+  return names;
+}
+
+interface QueueItem {
+  name: string;
+  depth: number;
+}
+
+interface AssetResult {
+  platform: string;
+  collection: string;
+  data: Record<string, unknown>;
+}
+
 export async function lookup(ctx: Context, next: Next) {
-  const { platform, asset_name } = ctx.request.query as {
+  const { platform, asset_name, get_relations, relation_depth } = ctx.request.query as {
     platform?: string;
-    asset_name?: string;
+    asset_name?: string | string[];
+    get_relations?: string;
+    relation_depth?: string;
   };
 
   if (!platform || !asset_name) {
     ctx.throw(400, 'platform and asset_name query parameters are required');
   }
 
-  // 1. Get platform from directory by slug
+  // Normalize asset_name to array
+  const assetNames = Array.isArray(asset_name) ? asset_name : [asset_name];
+  const getRelations = get_relations === 'true';
+  const relationDepth = parseInt(relation_depth || '1', 10);
+
+  // Get platform from directory by slug
   const platformRecord = await getPlatformBySlugOrThrow(ctx, platform);
 
-  // 2. Lookup asset in platform collection (O(1) - name is primary key)
-  const lookupRepo = ctx.db.getRepository(platformRecord.collectionName);
-  const lookupResult = await lookupRepo.findOne({
-    filter: { name: asset_name },
-  });
+  const visited = new Set<string>();
+  const result: Record<string, AssetResult> = {};
+  const queue: QueueItem[] = assetNames.map((name) => ({ name, depth: 0 }));
 
-  if (!lookupResult) {
-    ctx.throw(404, `Asset '${asset_name}' not found in platform '${platform}'`);
+  while (queue.length > 0) {
+    // Collect batch of unvisited names at the same depth level
+    const currentDepth = queue[0].depth;
+    const batch: string[] = [];
+
+    while (queue.length > 0 && queue[0].depth === currentDepth) {
+      const item = queue.shift()!;
+      if (!visited.has(item.name)) {
+        batch.push(item.name);
+        visited.add(item.name);
+      }
+    }
+
+    if (batch.length === 0) continue;
+
+    // Batch lookup all names in platform's lookup table
+    const lookupResults = await ctx.db.getRepository(platformRecord.collectionName).find({
+      filter: { name: { $in: batch } },
+    });
+
+    // Group by collection for efficient fetching
+    const byCollection = new Map<string, typeof lookupResults>();
+    for (const lookup of lookupResults) {
+      const key = lookup.collection;
+      if (!byCollection.has(key)) byCollection.set(key, []);
+      byCollection.get(key)!.push(lookup);
+    }
+
+    // Batch fetch each collection group
+    for (const [collectionName, lookups] of byCollection) {
+      const assetIds = lookups.map((l) => l.assetId);
+      const collection = ctx.db.getCollection(collectionName);
+      const relationFields = collection
+        .getFields()
+        .filter((f) => f.isRelationField())
+        .map((f) => f.name);
+
+      // Single batch query per collection with eager-loaded relations
+      const assets = await ctx.db.getRepository(collectionName).find({
+        filter: { id: { $in: assetIds } },
+        appends: relationFields,
+      });
+
+      // Build a map from assetId to lookup for quick access
+      const lookupByAssetId = new Map<string | number, (typeof lookups)[0]>();
+      for (const lookup of lookups) {
+        lookupByAssetId.set(lookup.assetId, lookup);
+      }
+
+      // Process results
+      for (const asset of assets) {
+        const resolvedData = resolveData(collection, asset);
+        const assetName = asset.name as string;
+        const lookup = lookupByAssetId.get(asset.id);
+
+        result[assetName] = {
+          platform,
+          collection: lookup?.collectionTitle || collectionName,
+          data: resolvedData,
+        };
+
+        // Queue relations if enabled and not at max depth
+        if (getRelations && currentDepth < relationDepth) {
+          const relationNames = extractRelationNames(resolvedData);
+          for (const relName of relationNames) {
+            if (!visited.has(relName)) {
+              queue.push({ name: relName, depth: currentDepth + 1 });
+            }
+          }
+        }
+      }
+    }
   }
 
-  // 3. Fetch full asset from source collection with relations loaded
-  const assetCollection = ctx.db.getCollection(lookupResult.collection);
-
-  // Get relation field names for appends (eagerly load related objects)
-  const relationFields = assetCollection
-    .getFields()
-    .filter((f) => f.isRelationField())
-    .map((f) => f.name);
-
-  const asset = await ctx.db.getRepository(lookupResult.collection).findOne({
-    filterByTk: lookupResult.assetId,
-    appends: relationFields,
-  });
-
-  if (!asset) {
-    ctx.throw(404, `Asset record not found in collection '${lookupResult.collection}'`);
-  }
-
-  // 4. Resolve field names and relation values
-  const resolvedData = resolveData(assetCollection, asset);
-
-  ctx.body = {
-    platform,
-    asset_name,
-    collection: lookupResult.collectionTitle || lookupResult.collection,
-    data: resolvedData,
-  };
-
+  ctx.body = result;
   await next();
 }
