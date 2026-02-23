@@ -1,4 +1,11 @@
 import { Context, Next } from '@nocobase/actions';
+import {
+  getPlatformOrThrow,
+  getLookupRepoOrThrow,
+  getCollectionTitle,
+  validateCollectionHasNameField,
+} from '../utils';
+import { syncRecordsToLookup } from '../utils';
 
 export async function syncCollection(ctx: Context, next: Next) {
   const { filterByTk } = ctx.action.params;
@@ -12,38 +19,14 @@ export async function syncCollection(ctx: Context, next: Next) {
     ctx.throw(400, 'collection name is required');
   }
 
-  // Get platform
-  const platform = await ctx.db.getRepository('databridge_platforms').findOne({
-    filterByTk,
-  });
-
-  if (!platform) {
-    ctx.throw(404, 'Platform not found');
-  }
-
-  // Ensure the lookup collection exists
-  const lookupCollection = ctx.db.getCollection(platform.collectionName);
-  if (!lookupCollection) {
-    ctx.throw(500, `Lookup collection '${platform.collectionName}' not found. Please recreate the platform.`);
-  }
+  const platform = await getPlatformOrThrow(ctx, filterByTk);
+  const lookupRepo = await getLookupRepoOrThrow(ctx, platform);
 
   // Validate collection exists and has 'name' field
-  const coll = ctx.db.getCollection(collectionName);
-  if (!coll) {
-    ctx.throw(400, `Collection '${collectionName}' does not exist`);
-  }
-  if (!coll.getField('name')) {
-    ctx.throw(400, `Collection '${collectionName}' must have a 'name' field`);
-  }
+  validateCollectionHasNameField(ctx, collectionName);
 
-  const lookupRepo = ctx.db.getRepository(platform.collectionName);
-
-  // Look up collection title
-  const collectionRecord = await ctx.db.getRepository('collections').findOne({
-    filter: { name: collectionName },
-    fields: ['name', 'title'],
-  });
-  const collectionTitle = collectionRecord?.title || collectionName;
+  // Get collection title
+  const collectionTitle = await getCollectionTitle(ctx.db, collectionName);
 
   // Delete all entries for this collection
   await lookupRepo.destroy({
@@ -55,30 +38,12 @@ export async function syncCollection(ctx: Context, next: Next) {
     fields: ['id', 'name'],
   });
 
-  let synced = 0;
-  const errors: string[] = [];
-
-  for (const record of records) {
-    if (!record.name) continue;
-
-    try {
-      await lookupRepo.create({
-        values: {
-          name: record.name,
-          collection: collectionName,
-          collectionTitle,
-          assetId: String(record.id),
-        },
-      });
-      synced++;
-    } catch (err: any) {
-      if (err.name === 'SequelizeUniqueConstraintError') {
-        errors.push(`Duplicate name '${record.name}' conflicts with existing entry`);
-      } else {
-        throw err;
-      }
-    }
-  }
+  const { synced, errors } = await syncRecordsToLookup(
+    lookupRepo,
+    records,
+    collectionName,
+    collectionTitle
+  );
 
   ctx.body = {
     synced,

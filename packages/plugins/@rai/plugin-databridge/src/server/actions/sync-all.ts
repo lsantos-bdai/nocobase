@@ -1,4 +1,10 @@
 import { Context, Next } from '@nocobase/actions';
+import {
+  getPlatformOrThrow,
+  getLookupRepoOrThrow,
+  getCollectionTitles,
+} from '../utils';
+import { syncRecordsToLookup } from '../utils';
 
 export async function syncAll(ctx: Context, next: Next) {
   const { filterByTk } = ctx.action.params;
@@ -7,60 +13,36 @@ export async function syncAll(ctx: Context, next: Next) {
     ctx.throw(400, 'filterByTk (platform id) is required');
   }
 
-  // Get platform
-  const platform = await ctx.db.getRepository('databridge_platforms').findOne({
-    filterByTk,
-  });
-
-  if (!platform) {
-    ctx.throw(404, 'Platform not found');
-  }
-
-  // Ensure the lookup collection exists
-  const lookupCollection = ctx.db.getCollection(platform.collectionName);
-  if (!lookupCollection) {
-    ctx.throw(500, `Lookup collection '${platform.collectionName}' not found. Please recreate the platform.`);
-  }
-
-  const lookupRepo = ctx.db.getRepository(platform.collectionName);
+  const platform = await getPlatformOrThrow(ctx, filterByTk);
+  const lookupRepo = await getLookupRepoOrThrow(ctx, platform);
 
   // Get distinct collection names from the lookup table
-  const entries = await lookupRepo.find({
-    fields: ['collection'],
-  });
+  const entries = await lookupRepo.find({ fields: ['collection'] });
   const collectionNames = [...new Set(entries.map((e: any) => e.collection))];
 
   if (collectionNames.length === 0) {
-    ctx.body = {
-      synced: 0,
-      collections: 0,
-    };
+    ctx.body = { synced: 0, collections: 0 };
     await next();
     return;
   }
 
-  // Look up collection titles
-  const collectionRecords = await ctx.db.getRepository('collections').find({
-    filter: { name: { $in: collectionNames } },
-    fields: ['name', 'title'],
-  });
-  const collectionTitles: Record<string, string> = {};
-  for (const coll of collectionRecords) {
-    collectionTitles[coll.name] = coll.title || coll.name;
-  }
+  // Get collection titles
+  const collectionTitles = await getCollectionTitles(ctx.db, collectionNames);
 
   // Clear all entries using TRUNCATE for reliability
+  const lookupCollection = ctx.db.getCollection(platform.collectionName);
   const model = lookupCollection.model;
   await model.destroy({ where: {}, truncate: true });
 
-  let synced = 0;
-  const errors: string[] = [];
+  let totalSynced = 0;
+  const allErrors: string[] = [];
 
   for (const collName of collectionNames) {
     const coll = ctx.db.getCollection(collName);
     const collTitle = collectionTitles[collName] || collName;
+
     if (!coll) {
-      errors.push(`Collection '${collTitle}' no longer exists`);
+      allErrors.push(`Collection '${collTitle}' no longer exists`);
       continue;
     }
 
@@ -68,33 +50,21 @@ export async function syncAll(ctx: Context, next: Next) {
       fields: ['id', 'name'],
     });
 
-    for (const record of records) {
-      if (!record.name) continue;
+    const { synced, errors } = await syncRecordsToLookup(
+      lookupRepo,
+      records,
+      collName,
+      collTitle
+    );
 
-      try {
-        await lookupRepo.create({
-          values: {
-            name: record.name,
-            collection: collName,
-            collectionTitle: collTitle,
-            assetId: String(record.id),
-          },
-        });
-        synced++;
-      } catch (err: any) {
-        if (err.name === 'SequelizeUniqueConstraintError') {
-          errors.push(`Duplicate name '${record.name}' from collection '${collTitle}'`);
-        } else {
-          throw err;
-        }
-      }
-    }
+    totalSynced += synced;
+    allErrors.push(...errors);
   }
 
   ctx.body = {
-    synced,
+    synced: totalSynced,
     collections: collectionNames.length,
-    errors: errors.length > 0 ? errors : undefined,
+    errors: allErrors.length > 0 ? allErrors : undefined,
   };
 
   await next();

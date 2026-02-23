@@ -1,4 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
+import { getPlatformBySlugOrThrow } from '../utils';
 
 export async function lookup(ctx: Context, next: Next) {
   const { platform, asset_name } = ctx.request.query as {
@@ -10,14 +11,8 @@ export async function lookup(ctx: Context, next: Next) {
     ctx.throw(400, 'platform and asset_name query parameters are required');
   }
 
-  // 1. Get platform from directory
-  const platformRecord = await ctx.db.getRepository('databridge_platforms').findOne({
-    filter: { slug: platform },
-  });
-
-  if (!platformRecord) {
-    ctx.throw(404, `Platform '${platform}' not found`);
-  }
+  // 1. Get platform from directory by slug
+  const platformRecord = await getPlatformBySlugOrThrow(ctx, platform);
 
   // 2. Lookup asset in platform collection (O(1) - name is primary key)
   const lookupRepo = ctx.db.getRepository(platformRecord.collectionName);

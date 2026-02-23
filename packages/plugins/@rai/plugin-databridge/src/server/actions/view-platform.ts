@@ -1,4 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
+import { getPlatformOrThrow } from '../utils';
 
 export async function viewPlatform(ctx: Context, next: Next) {
   const { filterByTk } = ctx.action.params;
@@ -8,14 +9,7 @@ export async function viewPlatform(ctx: Context, next: Next) {
     ctx.throw(400, 'filterByTk (platform id) is required');
   }
 
-  const platform = await ctx.db.getRepository('databridge_platforms').findOne({
-    filterByTk,
-  });
-
-  if (!platform) {
-    ctx.throw(404, 'Platform not found');
-  }
-
+  const platform = await getPlatformOrThrow(ctx, filterByTk);
   const lookupRepo = ctx.db.getRepository(platform.collectionName);
 
   const [entries, total] = await Promise.all([

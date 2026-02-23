@@ -12,6 +12,7 @@ import {
   removeCollection,
 } from './actions';
 import { DuplicateNamesError } from './errors/duplicate-names-error';
+import { getCollectionTitle } from './utils';
 
 type HookHandler = (model: Model, options: { transaction?: Transaction }) => Promise<void>;
 
@@ -125,7 +126,6 @@ export class PluginDatabridgeServer extends Plugin {
   }
 
   private async setupCollectionHooks() {
-    // Get all platforms and their registered collections
     try {
       const platforms = await this.db.getRepository('databridge_platforms').find();
       const allCollections = new Set<string>();
@@ -137,7 +137,6 @@ export class PluginDatabridgeServer extends Plugin {
         }
       }
 
-      // Register hooks for all collections
       for (const collName of allCollections) {
         this.registerCollectionHooks(collName);
       }
@@ -153,60 +152,36 @@ export class PluginDatabridgeServer extends Plugin {
       return;
     }
 
+    const createSyncHandler = (operation: 'create' | 'update' | 'destroy'): HookHandler => {
+      return async (model: Model, options: { transaction?: Transaction }) => {
+        // For updates, only sync if name field changed
+        if (operation === 'update') {
+          const changed = (model as any).changed?.() || [];
+          if (!changed.includes('name')) {
+            return;
+          }
+        }
+
+        const syncFn = async () => {
+          try {
+            await this.syncRecordToPlatforms(collectionName, model, operation);
+          } catch (err) {
+            this.app.logger.error(`DataBridge sync failed (after${operation.charAt(0).toUpperCase() + operation.slice(1)}):`, err);
+          }
+        };
+
+        if (options.transaction) {
+          options.transaction.afterCommit(syncFn);
+        } else {
+          await syncFn();
+        }
+      };
+    };
+
     const handlers: HookHandlers = {
-      afterCreate: async (model: Model, options: { transaction?: Transaction }) => {
-        const syncFn = async () => {
-          try {
-            await this.syncRecordToPlatforms(collectionName, model, 'create');
-          } catch (err) {
-            this.app.logger.error('DataBridge sync failed (afterCreate):', err);
-          }
-        };
-
-        if (options.transaction) {
-          options.transaction.afterCommit(syncFn);
-        } else {
-          await syncFn();
-        }
-      },
-
-      afterUpdate: async (model: Model, options: { transaction?: Transaction }) => {
-        // Only sync if name field changed
-        const changed = (model as any).changed?.() || [];
-        if (!changed.includes('name')) {
-          return;
-        }
-
-        const syncFn = async () => {
-          try {
-            await this.syncRecordToPlatforms(collectionName, model, 'update');
-          } catch (err) {
-            this.app.logger.error('DataBridge sync failed (afterUpdate):', err);
-          }
-        };
-
-        if (options.transaction) {
-          options.transaction.afterCommit(syncFn);
-        } else {
-          await syncFn();
-        }
-      },
-
-      afterDestroy: async (model: Model, options: { transaction?: Transaction }) => {
-        const syncFn = async () => {
-          try {
-            await this.syncRecordToPlatforms(collectionName, model, 'destroy');
-          } catch (err) {
-            this.app.logger.error('DataBridge sync failed (afterDestroy):', err);
-          }
-        };
-
-        if (options.transaction) {
-          options.transaction.afterCommit(syncFn);
-        } else {
-          await syncFn();
-        }
-      },
+      afterCreate: createSyncHandler('create'),
+      afterUpdate: createSyncHandler('update'),
+      afterDestroy: createSyncHandler('destroy'),
     };
 
     this.db.on(`${collectionName}.afterCreate`, handlers.afterCreate);
@@ -255,11 +230,7 @@ export class PluginDatabridgeServer extends Plugin {
     }
 
     // Get collection title
-    const collectionRecord = await this.db.getRepository('collections').findOne({
-      filter: { name: collectionName },
-      fields: ['title'],
-    });
-    const collectionTitle = collectionRecord?.title || collectionName;
+    const collectionTitle = await getCollectionTitle(this.db, collectionName);
 
     for (const platform of platforms) {
       const lookupRepo = this.db.getRepository(platform.collectionName);
@@ -268,70 +239,67 @@ export class PluginDatabridgeServer extends Plugin {
       }
 
       try {
-        if (operation === 'destroy') {
-          // Delete by assetId and collection
-          await lookupRepo.destroy({
-            filter: {
-              assetId,
-              collection: collectionName,
-            },
-          });
-        } else if (operation === 'create') {
-          if (!name) continue;
-          // Create new entry
-          await lookupRepo.create({
-            values: {
-              name,
-              collection: collectionName,
-              collectionTitle,
-              assetId,
-            },
-          });
-        } else if (operation === 'update') {
-          if (!name) {
-            // Name was cleared - remove the entry
-            await lookupRepo.destroy({
-              filter: {
-                assetId,
-                collection: collectionName,
-              },
-            });
-          } else {
-            // Update existing entry or create if doesn't exist
-            const existing = await lookupRepo.findOne({
-              filter: {
-                assetId,
-                collection: collectionName,
-              },
-            });
-
-            if (existing) {
-              await lookupRepo.update({
-                filterByTk: existing.id,
-                values: { name },
-              });
-            } else {
-              await lookupRepo.create({
-                values: {
-                  name,
-                  collection: collectionName,
-                  collectionTitle,
-                  assetId,
-                },
-              });
-            }
-          }
-        }
+        await this.handleSyncOperation(lookupRepo, operation, {
+          assetId,
+          name,
+          collectionName,
+          collectionTitle,
+        });
       } catch (err: any) {
-        // Log but don't throw - non-blocking
-        if (err.name === 'SequelizeUniqueConstraintError') {
-          this.app.logger.warn(
-            `DataBridge: duplicate name '${name}' when syncing to platform '${platform.name}'`
-          );
-        } else {
-          this.app.logger.error(`DataBridge: failed to sync to platform '${platform.name}':`, err);
-        }
+        this.logSyncError(err, name, platform.name);
       }
+    }
+  }
+
+  private async handleSyncOperation(
+    lookupRepo: any,
+    operation: 'create' | 'update' | 'destroy',
+    data: { assetId: string; name?: string; collectionName: string; collectionTitle: string }
+  ) {
+    const { assetId, name, collectionName, collectionTitle } = data;
+    const filter = { assetId, collection: collectionName };
+
+    if (operation === 'destroy') {
+      await lookupRepo.destroy({ filter });
+      return;
+    }
+
+    if (operation === 'create') {
+      if (!name) return;
+      await lookupRepo.create({
+        values: { name, collection: collectionName, collectionTitle, assetId },
+      });
+      return;
+    }
+
+    // operation === 'update'
+    if (!name) {
+      // Name was cleared - remove the entry
+      await lookupRepo.destroy({ filter });
+      return;
+    }
+
+    // Update existing entry or create if doesn't exist
+    const existing = await lookupRepo.findOne({ filter });
+    if (existing) {
+      await lookupRepo.update({
+        filterByTk: existing.id,
+        values: { name },
+      });
+    } else {
+      await lookupRepo.create({
+        values: { name, collection: collectionName, collectionTitle, assetId },
+      });
+    }
+  }
+
+  private logSyncError(err: any, name: string | undefined, platformName: string) {
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      this.app.logger.warn(
+        `DataBridge: duplicate name '${name}' when syncing to platform '${platformName}'`
+      );
+    } else {
+      this.app.logger.error(`DataBridge: failed to sync to platform '${platformName}':`, err);
     }
   }
 

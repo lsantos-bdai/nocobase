@@ -1,4 +1,9 @@
 import { Context, Next } from '@nocobase/actions';
+import {
+  getPlatformOrThrow,
+  getLookupRepoOrThrow,
+  removeFromRegisteredCollections,
+} from '../utils';
 
 export async function removeCollection(ctx: Context, next: Next) {
   const { filterByTk } = ctx.action.params;
@@ -12,23 +17,8 @@ export async function removeCollection(ctx: Context, next: Next) {
     ctx.throw(400, 'collection name is required');
   }
 
-  // Get platform
-  const platform = await ctx.db.getRepository('databridge_platforms').findOne({
-    filterByTk,
-  });
-
-  if (!platform) {
-    ctx.throw(404, 'Platform not found');
-  }
-
-  // Ensure the lookup collection exists
-  const lookupCollection = ctx.db.getCollection(platform.collectionName);
-  if (!lookupCollection) {
-    ctx.throw(500, `Lookup collection '${platform.collectionName}' not found. Please recreate the platform.`);
-  }
-
-  const lookupRepo = ctx.db.getRepository(platform.collectionName);
-  const platformsRepo = ctx.db.getRepository('databridge_platforms');
+  const platform = await getPlatformOrThrow(ctx, filterByTk);
+  const lookupRepo = await getLookupRepoOrThrow(ctx, platform);
 
   // Delete all entries for this collection from lookup table
   const deleted = await lookupRepo.destroy({
@@ -36,12 +26,7 @@ export async function removeCollection(ctx: Context, next: Next) {
   });
 
   // Update registeredCollections
-  const currentCollections: string[] = platform.registeredCollections || [];
-  const newRegistered = currentCollections.filter((c: string) => c !== collectionName);
-  await platformsRepo.update({
-    filterByTk,
-    values: { registeredCollections: newRegistered },
-  });
+  await removeFromRegisteredCollections(ctx, filterByTk, [collectionName]);
 
   ctx.body = {
     removed: typeof deleted === 'number' ? deleted : 0,
