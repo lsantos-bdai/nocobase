@@ -1,0 +1,13 @@
+{
+  "name": "@rai/plugin-schema-management",
+  "version": "2.0.1",
+  "main": "dist/server/index.js",
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "peerDependencies": {
+    "@nocobase/client": "2.x",
+    "@nocobase/server": "2.x",
+    "@nocobase/test": "2.x"
+  }
+}
