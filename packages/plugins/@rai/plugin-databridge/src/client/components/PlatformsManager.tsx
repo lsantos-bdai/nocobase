@@ -239,11 +239,106 @@ function SyncModal({
   );
 }
 
+interface LookupEntry {
+  id: number;
+  name: string;
+  collection: string;
+  assetId: string;
+}
+
+function ViewModal({
+  open,
+  platform,
+  onClose,
+}: {
+  open: boolean;
+  platform: any;
+  onClose: () => void;
+}) {
+  const api = useAPIClient();
+  const [entries, setEntries] = React.useState<LookupEntry[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [pagination, setPagination] = React.useState({ page: 1, pageSize: 50, total: 0 });
+  const [collectionTitles, setCollectionTitles] = React.useState<Record<string, string>>({});
+
+  const fetchEntries = React.useCallback(async (page: number, pageSize: number) => {
+    if (!platform) return;
+    setLoading(true);
+    try {
+      const res = await api.request({
+        url: `databridge_platforms:view?filterByTk=${platform.id}&page=${page}&pageSize=${pageSize}`,
+        method: 'get',
+      });
+      const responseBody = res?.data?.data || {};
+      const data = responseBody.data;
+      const meta = responseBody.meta;
+      setEntries(Array.isArray(data) ? data : []);
+      setPagination({ page: meta?.page || 1, pageSize: meta?.pageSize || 50, total: meta?.total || 0 });
+      setCollectionTitles(responseBody.collectionTitles || {});
+    } catch (err) {
+      console.error('Failed to fetch entries:', err);
+      message.error('Failed to load entries');
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api, platform]);
+
+  React.useEffect(() => {
+    if (open && platform) {
+      setEntries([]);
+      setPagination({ page: 1, pageSize: 50, total: 0 });
+      fetchEntries(1, 50);
+    }
+  }, [open, platform, fetchEntries]);
+
+  const columns = [
+    { title: 'Asset Name', dataIndex: 'name', key: 'name' },
+    {
+      title: 'Source Collection',
+      dataIndex: 'collection',
+      key: 'collection',
+      render: (collName: string) => collectionTitles[collName] || collName,
+    },
+    { title: 'Asset ID', dataIndex: 'assetId', key: 'assetId' },
+  ];
+
+  return (
+    <Modal
+      title={`View "${platform?.name}" Entries`}
+      open={open}
+      onCancel={onClose}
+      footer={null}
+      width={700}
+    >
+      <p style={{ marginBottom: 16, color: '#666' }}>
+        Total entries: <strong>{pagination.total}</strong>
+      </p>
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={entries}
+        columns={columns}
+        size="small"
+        pagination={{
+          current: pagination.page,
+          pageSize: pagination.pageSize,
+          total: pagination.total,
+          showSizeChanger: true,
+          pageSizeOptions: ['20', '50', '100'],
+          onChange: (page, pageSize) => fetchEntries(page, pageSize),
+        }}
+      />
+    </Modal>
+  );
+}
+
 function PlatformsTable() {
   const api = useAPIClient();
   const [platforms, setPlatforms] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [syncModalOpen, setSyncModalOpen] = React.useState(false);
+  const [viewModalOpen, setViewModalOpen] = React.useState(false);
   const [selectedPlatform, setSelectedPlatform] = React.useState<any>(null);
 
   const fetchPlatforms = React.useCallback(async () => {
@@ -297,6 +392,11 @@ function PlatformsTable() {
     setSyncModalOpen(true);
   };
 
+  const handleView = (platform: any) => {
+    setSelectedPlatform(platform);
+    setViewModalOpen(true);
+  };
+
   const columns = [
     { title: 'Name', dataIndex: 'name', key: 'name' },
     { title: 'Slug', dataIndex: 'slug', key: 'slug' },
@@ -305,9 +405,12 @@ function PlatformsTable() {
     {
       title: 'Actions',
       key: 'actions',
-      width: 150,
+      width: 200,
       render: (_: any, record: any) => (
         <Space>
+          <Button size="small" onClick={() => handleView(record)}>
+            View
+          </Button>
           <Button size="small" onClick={() => handleSync(record)}>
             Sync
           </Button>
@@ -333,6 +436,11 @@ function PlatformsTable() {
         platform={selectedPlatform}
         onClose={() => setSyncModalOpen(false)}
         onSuccess={fetchPlatforms}
+      />
+      <ViewModal
+        open={viewModalOpen}
+        platform={selectedPlatform}
+        onClose={() => setViewModalOpen(false)}
       />
     </>
   );

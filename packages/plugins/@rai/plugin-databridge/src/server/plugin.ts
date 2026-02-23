@@ -1,5 +1,5 @@
 import { Plugin } from '@nocobase/server';
-import { lookup, createPlatform, syncPlatform, destroyPlatform, listCollections } from './actions';
+import { lookup, createPlatform, syncPlatform, destroyPlatform, listCollections, viewPlatform } from './actions';
 
 export class PluginDatabridgeServer extends Plugin {
   async afterAdd() {}
@@ -53,6 +53,7 @@ export class PluginDatabridgeServer extends Plugin {
     this.app.resourceManager.registerActionHandler('databridge_platforms:create', createPlatform);
     this.app.resourceManager.registerActionHandler('databridge_platforms:sync', syncPlatform);
     this.app.resourceManager.registerActionHandler('databridge_platforms:destroy', destroyPlatform);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:view', viewPlatform);
 
     // ACL permissions - register snippet for role-based access
     this.app.acl.registerSnippet({
@@ -64,7 +65,7 @@ export class PluginDatabridgeServer extends Plugin {
     this.app.acl.allow('databridge', ['lookup', 'listCollections'], 'loggedIn');
 
     // Allow databridge_platforms actions for users with pm.databridge snippet
-    this.app.acl.allow('databridge_platforms', ['list', 'get', 'create', 'update', 'destroy', 'sync'], 'loggedIn');
+    this.app.acl.allow('databridge_platforms', ['list', 'get', 'create', 'update', 'destroy', 'sync', 'view'], 'loggedIn');
   }
 
   async install() {}
