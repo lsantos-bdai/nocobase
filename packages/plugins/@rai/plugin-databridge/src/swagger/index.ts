@@ -37,8 +37,18 @@ export default {
                   properties: {
                     platform: { type: 'string', example: 'models' },
                     asset_name: { type: 'string', example: 'spot_arm_v2' },
-                    collection: { type: 'string', example: 'robots' },
-                    data: { type: 'object' },
+                    collection: { type: 'string', example: 'Robots' },
+                    data: {
+                      type: 'object',
+                      description:
+                        'Asset data with resolved field names (from field titles, normalized to snake_case) and relation values (fetched from related records)',
+                      example: {
+                        name: 'spot_arm_v2',
+                        robot_model: 'Franka Research 3',
+                        serial_number: 'SN-001234',
+                        status: 'active',
+                      },
+                    },
                   },
                 },
               },
