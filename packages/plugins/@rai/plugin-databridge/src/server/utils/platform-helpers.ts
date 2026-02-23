@@ -11,15 +11,21 @@ export interface Platform {
 }
 
 /**
- * Get a platform by ID, throwing 404 if not found.
+ * Get a platform by ID or slug, throwing 404 if not found.
+ * Accepts either numeric ID or string slug as identifier.
  */
-export async function getPlatformOrThrow(ctx: Context, filterByTk: string | number): Promise<Platform> {
-  const platform = await ctx.db.getRepository('databridge_platforms').findOne({
-    filterByTk,
-  });
+export async function getPlatformOrThrow(ctx: Context, identifier: string | number): Promise<Platform> {
+  const repo = ctx.db.getRepository('databridge_platforms');
+
+  // If numeric, lookup by ID; otherwise lookup by slug
+  const isNumeric = typeof identifier === 'number' || /^\d+$/.test(String(identifier));
+
+  const platform = isNumeric
+    ? await repo.findOne({ filterByTk: identifier })
+    : await repo.findOne({ filter: { slug: identifier } });
 
   if (!platform) {
-    ctx.throw(404, 'Platform not found');
+    ctx.throw(404, `Platform '${identifier}' not found`);
   }
 
   return platform as Platform;
@@ -98,15 +104,20 @@ export async function getCollectionTitle(db: Database, collectionName: string): 
 
 /**
  * Update the registeredCollections array for a platform.
+ * Accepts either numeric ID or string slug as identifier.
  */
 export async function updateRegisteredCollections(
   ctx: Context,
-  platformId: string | number,
+  identifier: string | number,
   toAdd: string[],
   toRemove: string[]
 ): Promise<void> {
   const platformsRepo = ctx.db.getRepository('databridge_platforms');
-  const platform = await platformsRepo.findOne({ filterByTk: platformId });
+  const isNumeric = typeof identifier === 'number' || /^\d+$/.test(String(identifier));
+
+  const platform = isNumeric
+    ? await platformsRepo.findOne({ filterByTk: identifier })
+    : await platformsRepo.findOne({ filter: { slug: identifier } });
 
   if (!platform) {
     return;
@@ -123,21 +134,26 @@ export async function updateRegisteredCollections(
   }
 
   await platformsRepo.update({
-    filterByTk: platformId,
+    filterByTk: platform.id,
     values: { registeredCollections: [...updatedCollections] },
   });
 }
 
 /**
  * Remove collections from registeredCollections array.
+ * Accepts either numeric ID or string slug as identifier.
  */
 export async function removeFromRegisteredCollections(
   ctx: Context,
-  platformId: string | number,
+  identifier: string | number,
   toRemove: string[]
 ): Promise<void> {
   const platformsRepo = ctx.db.getRepository('databridge_platforms');
-  const platform = await platformsRepo.findOne({ filterByTk: platformId });
+  const isNumeric = typeof identifier === 'number' || /^\d+$/.test(String(identifier));
+
+  const platform = isNumeric
+    ? await platformsRepo.findOne({ filterByTk: identifier })
+    : await platformsRepo.findOne({ filter: { slug: identifier } });
 
   if (!platform) {
     return;
@@ -147,7 +163,7 @@ export async function removeFromRegisteredCollections(
   const newRegistered = currentCollections.filter((c: string) => !toRemove.includes(c));
 
   await platformsRepo.update({
-    filterByTk: platformId,
+    filterByTk: platform.id,
     values: { registeredCollections: newRegistered },
   });
 }
