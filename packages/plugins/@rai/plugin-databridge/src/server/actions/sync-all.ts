@@ -58,8 +58,9 @@ export async function syncAll(ctx: Context, next: Next) {
 
   for (const collName of collectionNames) {
     const coll = ctx.db.getCollection(collName);
+    const collTitle = collectionTitles[collName] || collName;
     if (!coll) {
-      errors.push(`Collection '${collName}' no longer exists`);
+      errors.push(`Collection '${collTitle}' no longer exists`);
       continue;
     }
 
@@ -75,14 +76,14 @@ export async function syncAll(ctx: Context, next: Next) {
           values: {
             name: record.name,
             collection: collName,
-            collectionTitle: collectionTitles[collName] || collName,
+            collectionTitle: collTitle,
             assetId: String(record.id),
           },
         });
         synced++;
       } catch (err: any) {
         if (err.name === 'SequelizeUniqueConstraintError') {
-          errors.push(`Duplicate name '${record.name}' from collection '${collName}'`);
+          errors.push(`Duplicate name '${record.name}' from collection '${collTitle}'`);
         } else {
           throw err;
         }

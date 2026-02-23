@@ -1,7 +1,9 @@
 import React from 'react';
 import { SchemaComponent, useAPIClient } from '@nocobase/client';
-import { Button, Table, Space, Modal, Form, Input, message, Checkbox, Spin, Tag, Alert } from 'antd';
-import { CheckCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { Button, Table, Space, Modal, Form, Input, message, Checkbox, Spin, Tag, Alert, Typography } from 'antd';
+import { CheckCircleOutlined, SyncOutlined, WarningOutlined } from '@ant-design/icons';
+
+const { Text } = Typography;
 
 const schema = {
   type: 'void',
@@ -107,7 +109,7 @@ interface CollectionInfo {
 
 interface DuplicateError {
   withinNewCollections?: { name: string; collections: string[] }[];
-  withExistingEntries?: { name: string; collection: string }[];
+  withExistingEntries?: { name: string; newCollection: string; existingCollection: string }[];
 }
 
 function ManageModal({
@@ -186,9 +188,12 @@ function ManageModal({
       onClose();
     } catch (err: any) {
       const errorData = err.response?.data;
-      if (errorData?.data?.duplicates) {
-        setDuplicateError(errorData.data.duplicates);
+      // Duplicates are at the top level of the response (via custom error handler)
+      const duplicates = errorData?.duplicates;
+      if (duplicates) {
+        setDuplicateError(duplicates);
       } else {
+        console.error('Sync error response:', errorData);
         message.error(errorData?.errors?.[0]?.message || 'Failed to save changes');
       }
     } finally {
@@ -226,31 +231,55 @@ function ManageModal({
         <Alert
           type="error"
           style={{ marginBottom: 16 }}
-          message="Duplicate asset names found"
+          message={`Duplicate asset names found (${(duplicateError.withinNewCollections?.length || 0) + (duplicateError.withExistingEntries?.length || 0)} conflicts)`}
           description={
-            <div>
+            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
               {duplicateError.withinNewCollections && duplicateError.withinNewCollections.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>These names appear in multiple collections you selected:</strong>
-                  <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
-                    {duplicateError.withinNewCollections.map((d, i) => (
-                      <li key={i}>
-                        "{d.name}" in: {d.collections.join(', ')}
-                      </li>
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong>Names appearing in multiple selected collections:</Text>
+                  <div style={{ marginTop: 8 }}>
+                    {duplicateError.withinNewCollections.slice(0, 10).map((d, i) => (
+                      <div key={i} style={{ marginBottom: 4, paddingLeft: 8 }}>
+                        <Tag color="orange">{d.name}</Tag>
+                        <Text type="secondary"> in: {d.collections.join(', ')}</Text>
+                      </div>
                     ))}
-                  </ul>
+                    {duplicateError.withinNewCollections.length > 10 && (
+                      <Text type="secondary" style={{ paddingLeft: 8 }}>
+                        ...and {duplicateError.withinNewCollections.length - 10} more
+                      </Text>
+                    )}
+                  </div>
                 </div>
               )}
               {duplicateError.withExistingEntries && duplicateError.withExistingEntries.length > 0 && (
                 <div>
-                  <strong>These names conflict with existing platform entries:</strong>
-                  <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
-                    {duplicateError.withExistingEntries.map((d, i) => (
-                      <li key={i}>
-                        "{d.name}" from collection "{d.collection}"
-                      </li>
-                    ))}
-                  </ul>
+                  <Text strong>Names conflicting with existing platform entries:</Text>
+                  <div style={{ marginTop: 8 }}>
+                    {(() => {
+                      // Group by existingCollection for cleaner display
+                      const byExisting: Record<string, { name: string; newCollection: string }[]> = {};
+                      for (const d of duplicateError.withExistingEntries!) {
+                        if (!byExisting[d.existingCollection]) {
+                          byExisting[d.existingCollection] = [];
+                        }
+                        byExisting[d.existingCollection].push({ name: d.name, newCollection: d.newCollection });
+                      }
+                      return Object.entries(byExisting).map(([existingColl, items]) => (
+                        <div key={existingColl} style={{ marginBottom: 8, paddingLeft: 8 }}>
+                          <Text type="secondary">Already in "{existingColl}":</Text>
+                          <div style={{ paddingLeft: 8, marginTop: 4 }}>
+                            {items.slice(0, 8).map((item, i) => (
+                              <Tag key={i} style={{ margin: '2px 4px 2px 0' }}>{item.name}</Tag>
+                            ))}
+                            {items.length > 8 && (
+                              <Text type="secondary">...and {items.length - 8} more</Text>
+                            )}
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
                 </div>
               )}
             </div>
@@ -406,6 +435,154 @@ function ViewModal({
   );
 }
 
+interface SyncResult {
+  synced: number;
+  collections: number;
+  errors?: string[];
+}
+
+interface GroupedErrors {
+  duplicates: { name: string; collection: string }[];
+  missingCollections: string[];
+  other: string[];
+}
+
+function groupSyncErrors(errors: string[]): GroupedErrors {
+  const grouped: GroupedErrors = {
+    duplicates: [],
+    missingCollections: [],
+    other: [],
+  };
+
+  for (const error of errors) {
+    // Parse "Duplicate name 'SG-005' from collection 'robots'"
+    const dupMatch = error.match(/Duplicate name '([^']+)' from collection '([^']+)'/);
+    if (dupMatch) {
+      grouped.duplicates.push({ name: dupMatch[1], collection: dupMatch[2] });
+      continue;
+    }
+    // Parse "Collection 'foo' no longer exists"
+    const missingMatch = error.match(/Collection '([^']+)' no longer exists/);
+    if (missingMatch) {
+      grouped.missingCollections.push(missingMatch[1]);
+      continue;
+    }
+    grouped.other.push(error);
+  }
+
+  return grouped;
+}
+
+function SyncErrorsModal({
+  open,
+  result,
+  onClose,
+}: {
+  open: boolean;
+  result: SyncResult | null;
+  onClose: () => void;
+}) {
+  if (!result) return null;
+
+  const grouped = groupSyncErrors(result.errors || []);
+  const totalErrors = result.errors?.length || 0;
+
+  // Group duplicates by collection for cleaner display
+  const dupsByCollection: Record<string, string[]> = {};
+  for (const dup of grouped.duplicates) {
+    if (!dupsByCollection[dup.collection]) {
+      dupsByCollection[dup.collection] = [];
+    }
+    dupsByCollection[dup.collection].push(dup.name);
+  }
+
+  return (
+    <Modal
+      title={
+        <Space>
+          <WarningOutlined style={{ color: '#faad14' }} />
+          <span>Sync completed with {totalErrors} warning{totalErrors !== 1 ? 's' : ''}</span>
+        </Space>
+      }
+      open={open}
+      onCancel={onClose}
+      footer={[
+        <Button key="close" type="primary" onClick={onClose}>
+          Close
+        </Button>,
+      ]}
+      width={600}
+    >
+      <div style={{ marginBottom: 16 }}>
+        <Text type="success">
+          Successfully synced {result.synced} record{result.synced !== 1 ? 's' : ''} from {result.collections} collection{result.collections !== 1 ? 's' : ''}.
+        </Text>
+      </div>
+
+      {grouped.duplicates.length > 0 && (
+        <Alert
+          type="warning"
+          style={{ marginBottom: 12 }}
+          message={`${grouped.duplicates.length} duplicate name${grouped.duplicates.length !== 1 ? 's' : ''} skipped`}
+          description={
+            <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+              {Object.entries(dupsByCollection).map(([collection, names]) => (
+                <div key={collection} style={{ marginBottom: 8 }}>
+                  <Text strong>From "{collection}":</Text>
+                  <div style={{ paddingLeft: 16, color: '#666' }}>
+                    {names.length <= 10 ? (
+                      names.map((name, i) => (
+                        <Tag key={i} style={{ margin: '2px 4px 2px 0' }}>{name}</Tag>
+                      ))
+                    ) : (
+                      <>
+                        {names.slice(0, 8).map((name, i) => (
+                          <Tag key={i} style={{ margin: '2px 4px 2px 0' }}>{name}</Tag>
+                        ))}
+                        <Text type="secondary">...and {names.length - 8} more</Text>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          }
+        />
+      )}
+
+      {grouped.missingCollections.length > 0 && (
+        <Alert
+          type="error"
+          style={{ marginBottom: 12 }}
+          message={`${grouped.missingCollections.length} collection${grouped.missingCollections.length !== 1 ? 's' : ''} no longer exist`}
+          description={
+            <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
+              {grouped.missingCollections.map((name, i) => (
+                <li key={i}>{name}</li>
+              ))}
+            </ul>
+          }
+        />
+      )}
+
+      {grouped.other.length > 0 && (
+        <Alert
+          type="error"
+          style={{ marginBottom: 12 }}
+          message="Other errors"
+          description={
+            <ul style={{ marginBottom: 0, paddingLeft: 20, maxHeight: 150, overflowY: 'auto' }}>
+              {grouped.other.map((err, i) => (
+                <li key={i}><Text code>{err}</Text></li>
+              ))}
+            </ul>
+          }
+        />
+      )}
+    </Modal>
+  );
+}
+
 function PlatformsTable() {
   const api = useAPIClient();
   const [platforms, setPlatforms] = React.useState<any[]>([]);
@@ -414,6 +591,8 @@ function PlatformsTable() {
   const [viewModalOpen, setViewModalOpen] = React.useState(false);
   const [selectedPlatform, setSelectedPlatform] = React.useState<any>(null);
   const [syncingPlatformId, setSyncingPlatformId] = React.useState<number | null>(null);
+  const [syncErrorsModalOpen, setSyncErrorsModalOpen] = React.useState(false);
+  const [syncResult, setSyncResult] = React.useState<SyncResult | null>(null);
 
   const fetchPlatforms = React.useCallback(async () => {
     try {
@@ -480,7 +659,9 @@ function PlatformsTable() {
       });
       const { synced, collections, errors } = res?.data?.data || {};
       if (errors && errors.length > 0) {
-        message.warning(`Synced ${synced} records from ${collections} collections with ${errors.length} warnings`);
+        // Store result and open modal to show detailed errors
+        setSyncResult({ synced, collections, errors });
+        setSyncErrorsModalOpen(true);
       } else {
         message.success(`Synced ${synced} records from ${collections} collections`);
       }
@@ -534,6 +715,14 @@ function PlatformsTable() {
         onSuccess={fetchPlatforms}
       />
       <ViewModal open={viewModalOpen} platform={selectedPlatform} onClose={() => setViewModalOpen(false)} />
+      <SyncErrorsModal
+        open={syncErrorsModalOpen}
+        result={syncResult}
+        onClose={() => {
+          setSyncErrorsModalOpen(false);
+          setSyncResult(null);
+        }}
+      />
     </>
   );
 }

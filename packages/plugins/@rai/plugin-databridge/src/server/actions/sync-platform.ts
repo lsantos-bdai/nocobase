@@ -1,9 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
-
-interface DuplicateInfo {
-  withinNewCollections: { name: string; collections: string[] }[];
-  withExistingEntries: { name: string; collection: string }[];
-}
+import { DuplicateNamesError, DuplicateInfo } from '../errors/duplicate-names-error';
 
 export async function syncPlatform(ctx: Context, next: Next) {
   const { filterByTk } = ctx.action.params;
@@ -118,13 +114,40 @@ export async function syncPlatform(ctx: Context, next: Next) {
       existingCollection: existingNameMap.get(r.name)!,
     }));
 
-  // Step 4: If any duplicates, return detailed error
+  // Step 4: If any duplicates, return detailed error with collection titles
   if (internalDuplicates.length > 0 || externalDuplicates.length > 0) {
+    // Collect all collection names involved in duplicates
+    const allCollNames = new Set<string>();
+    for (const d of internalDuplicates) {
+      d.collections.forEach((c) => allCollNames.add(c));
+    }
+    for (const d of externalDuplicates) {
+      allCollNames.add(d.collection);
+      allCollNames.add(d.existingCollection);
+    }
+
+    // Fetch titles for all involved collections
+    const titleRecords = await ctx.db.getRepository('collections').find({
+      filter: { name: { $in: [...allCollNames] } },
+      fields: ['name', 'title'],
+    });
+    const titles: Record<string, string> = {};
+    for (const c of titleRecords) {
+      titles[c.name] = c.title || c.name;
+    }
+
     const duplicates: DuplicateInfo = {
-      withinNewCollections: internalDuplicates,
-      withExistingEntries: externalDuplicates.map((d) => ({ name: d.name, collection: d.collection })),
+      withinNewCollections: internalDuplicates.map((d) => ({
+        name: d.name,
+        collections: d.collections.map((c) => titles[c] || c),
+      })),
+      withExistingEntries: externalDuplicates.map((d) => ({
+        name: d.name,
+        newCollection: titles[d.collection] || d.collection,
+        existingCollection: titles[d.existingCollection] || d.existingCollection,
+      })),
     };
-    ctx.throw(400, 'Duplicate asset names found', { duplicates });
+    throw new DuplicateNamesError(duplicates);
   }
 
   // Look up collection titles

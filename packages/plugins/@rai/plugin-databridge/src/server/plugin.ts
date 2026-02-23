@@ -11,6 +11,7 @@ import {
   syncCollection,
   removeCollection,
 } from './actions';
+import { DuplicateNamesError } from './errors/duplicate-names-error';
 
 type HookHandler = (model: Model, options: { transaction?: Transaction }) => Promise<void>;
 
@@ -104,6 +105,19 @@ export class PluginDatabridgeServer extends Plugin {
       'databridge_platforms',
       ['list', 'get', 'create', 'update', 'destroy', 'sync', 'view', 'syncAll', 'syncCollection', 'removeCollection'],
       'loggedIn'
+    );
+
+    // Register custom error handler for duplicate names
+    const errorHandlerPlugin = this.app.pm.get<any>('error-handler');
+    errorHandlerPlugin.errorHandler.register(
+      (err: Error) => err instanceof DuplicateNamesError,
+      (err: DuplicateNamesError, ctx: any) => {
+        ctx.status = err.status;
+        ctx.body = {
+          errors: [{ message: err.message }],
+          duplicates: err.duplicates,
+        };
+      },
     );
 
     // Set up event hooks for registered collections

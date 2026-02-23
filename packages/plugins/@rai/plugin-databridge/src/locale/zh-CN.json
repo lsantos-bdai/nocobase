@@ -32,5 +32,16 @@
   "These names conflict with existing platform entries:": "这些名称与现有平台条目冲突：",
   "No changes to save": "没有要保存的更改",
   "Collections updated successfully": "集合更新成功",
-  "records synced": "条记录已同步"
+  "records synced": "条记录已同步",
+  "Sync completed with warnings": "同步完成，但有警告",
+  "duplicate names skipped": "个重复名称已跳过",
+  "collections no longer exist": "个集合已不存在",
+  "Other errors": "其他错误",
+  "Close": "关闭",
+  "Successfully synced": "成功同步",
+  "and more": "等更多",
+  "Names appearing in multiple selected collections:": "出现在多个所选集合中的名称：",
+  "Names conflicting with existing platform entries:": "与现有平台条目冲突的名称：",
+  "Already in": "已存在于",
+  "conflicts": "个冲突"
 }
