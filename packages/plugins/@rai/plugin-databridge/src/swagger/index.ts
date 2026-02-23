@@ -58,7 +58,8 @@ export default {
                     type: 'object',
                     properties: {
                       platform: { type: 'string', example: 'models' },
-                      collection: { type: 'string', example: 'Robots' },
+                      collection: { type: 'string', example: 't_98x374ie2j7', description: 'Internal collection name' },
+                      collection_title: { type: 'string', example: 'Robots', description: 'Human-readable collection title' },
                       data: {
                         type: 'object',
                         description:
@@ -75,7 +76,8 @@ export default {
                   example: {
                     spot_arm_v2: {
                       platform: 'models',
-                      collection: 'Robots',
+                      collection: 't_abc123xyz',
+                      collection_title: 'Robots',
                       data: {
                         name: 'spot_arm_v2',
                         robot_model: 'Franka Research 3',
@@ -85,7 +87,8 @@ export default {
                     },
                     'Franka Research 3': {
                       platform: 'models',
-                      collection: 'Robot Models',
+                      collection: 't_def456uvw',
+                      collection_title: 'Robot Models',
                       data: {
                         name: 'Franka Research 3',
                         manufacturer: 'Franka Emika',

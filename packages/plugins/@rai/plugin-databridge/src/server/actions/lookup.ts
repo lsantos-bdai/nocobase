@@ -80,6 +80,7 @@ interface QueueItem {
 interface AssetResult {
   platform: string;
   collection: string;
+  collection_title: string;
   data: Record<string, unknown>;
 }
 
@@ -151,20 +152,22 @@ export async function lookup(ctx: Context, next: Next) {
       });
 
       // Build a map from assetId to lookup for quick access
-      const lookupByAssetId = new Map<string | number, (typeof lookups)[0]>();
+      // Note: assetId is stored as string in DB, but asset.id is a number, so normalize to string
+      const lookupByAssetId = new Map<string, (typeof lookups)[0]>();
       for (const lookup of lookups) {
-        lookupByAssetId.set(lookup.assetId, lookup);
+        lookupByAssetId.set(String(lookup.assetId), lookup);
       }
 
       // Process results
       for (const asset of assets) {
         const resolvedData = resolveData(collection, asset);
         const assetName = asset.name as string;
-        const lookup = lookupByAssetId.get(asset.id);
+        const lookup = lookupByAssetId.get(String(asset.id));
 
         result[assetName] = {
           platform,
-          collection: lookup?.collectionTitle || collectionName,
+          collection: collectionName,
+          collection_title: lookup?.collectionTitle || collectionName,
           data: resolvedData,
         };
 
