@@ -105,7 +105,7 @@ export class PluginDatabridgeServer extends Plugin {
     this.app.acl.allow(
       'databridge_platforms',
       ['list', 'get', 'create', 'update', 'destroy', 'sync', 'view', 'syncAll', 'syncCollection', 'removeCollection'],
-      'loggedIn'
+      'loggedIn',
     );
 
     // Register custom error handler for duplicate names
@@ -166,7 +166,10 @@ export class PluginDatabridgeServer extends Plugin {
           try {
             await this.syncRecordToPlatforms(collectionName, model, operation);
           } catch (err) {
-            this.app.logger.error(`DataBridge sync failed (after${operation.charAt(0).toUpperCase() + operation.slice(1)}):`, err);
+            this.app.logger.error(
+              `DataBridge sync failed (after${operation.charAt(0).toUpperCase() + operation.slice(1)}):`,
+              err,
+            );
           }
         };
 
@@ -210,7 +213,7 @@ export class PluginDatabridgeServer extends Plugin {
   private async syncRecordToPlatforms(
     collectionName: string,
     model: Model,
-    operation: 'create' | 'update' | 'destroy'
+    operation: 'create' | 'update' | 'destroy',
   ) {
     const record = model.get({ plain: true }) as { id: number | string; name?: string };
     const assetId = String(record.id);
@@ -254,7 +257,7 @@ export class PluginDatabridgeServer extends Plugin {
   private async handleSyncOperation(
     lookupRepo: any,
     operation: 'create' | 'update' | 'destroy',
-    data: { assetId: string; name?: string; collectionName: string; collectionTitle: string }
+    data: { assetId: string; name?: string; collectionName: string; collectionTitle: string },
   ) {
     const { assetId, name, collectionName, collectionTitle } = data;
     const filter = { assetId, collection: collectionName };
@@ -295,9 +298,7 @@ export class PluginDatabridgeServer extends Plugin {
 
   private logSyncError(err: any, name: string | undefined, platformName: string) {
     if (err.name === 'SequelizeUniqueConstraintError') {
-      this.app.logger.warn(
-        `DataBridge: duplicate name '${name}' when syncing to platform '${platformName}'`
-      );
+      this.app.logger.warn(`DataBridge: duplicate name '${name}' when syncing to platform '${platformName}'`);
     } else {
       this.app.logger.error(`DataBridge: failed to sync to platform '${platformName}':`, err);
     }

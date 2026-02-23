@@ -57,7 +57,8 @@ export function CreatePlatformButton() {
               { required: true, message: 'Slug is required' },
               {
                 pattern: /^[a-z][a-z0-9_]*$/,
-                message: 'Must start with lowercase letter and contain only lowercase letters, numbers, and underscores',
+                message:
+                  'Must start with lowercase letter and contain only lowercase letters, numbers, and underscores',
               },
             ]}
           >

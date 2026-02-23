@@ -1,9 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
-import {
-  getPlatformOrThrow,
-  getLookupRepoOrThrow,
-  removeFromRegisteredCollections,
-} from '../utils';
+import { getPlatformOrThrow, getLookupRepoOrThrow, removeFromRegisteredCollections } from '../utils';
 
 export async function removeCollection(ctx: Context, next: Next) {
   const { filterByTk } = ctx.action.params;

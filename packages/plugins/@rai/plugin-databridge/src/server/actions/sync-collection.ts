@@ -1,10 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
-import {
-  getPlatformOrThrow,
-  getLookupRepoOrThrow,
-  getCollectionTitle,
-  validateCollectionHasNameField,
-} from '../utils';
+import { getPlatformOrThrow, getLookupRepoOrThrow, getCollectionTitle, validateCollectionHasNameField } from '../utils';
 import { syncRecordsToLookup } from '../utils';
 
 export async function syncCollection(ctx: Context, next: Next) {
@@ -38,12 +33,7 @@ export async function syncCollection(ctx: Context, next: Next) {
     fields: ['id', 'name'],
   });
 
-  const { synced, errors } = await syncRecordsToLookup(
-    lookupRepo,
-    records,
-    collectionName,
-    collectionTitle
-  );
+  const { synced, errors } = await syncRecordsToLookup(lookupRepo, records, collectionName, collectionTitle);
 
   ctx.body = {
     synced,

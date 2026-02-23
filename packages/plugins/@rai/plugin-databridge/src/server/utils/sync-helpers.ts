@@ -18,7 +18,7 @@ export async function syncRecordsToLookup(
   lookupRepo: Repository,
   records: SyncRecord[],
   collectionName: string,
-  collectionTitle: string
+  collectionTitle: string,
 ): Promise<SyncResult> {
   let synced = 0;
   const errors: string[] = [];
@@ -57,10 +57,7 @@ export interface NewRecord {
   assetId: string;
 }
 
-export async function collectRecordsFromCollections(
-  db: any,
-  collectionNames: string[]
-): Promise<NewRecord[]> {
+export async function collectRecordsFromCollections(db: any, collectionNames: string[]): Promise<NewRecord[]> {
   const newRecords: NewRecord[] = [];
 
   for (const collName of collectionNames) {
@@ -83,9 +80,7 @@ export async function collectRecordsFromCollections(
 /**
  * Find duplicates within a list of records (same name appearing in multiple collections).
  */
-export function findInternalDuplicates(
-  records: NewRecord[]
-): { name: string; collections: string[] }[] {
+export function findInternalDuplicates(records: NewRecord[]): { name: string; collections: string[] }[] {
   const nameToCollections = new Map<string, string[]>();
 
   for (const { name, collection } of records) {
@@ -112,7 +107,7 @@ export interface ExternalDuplicate {
 export async function findExternalDuplicates(
   lookupRepo: Repository,
   newRecords: NewRecord[],
-  excludeCollections: string[]
+  excludeCollections: string[],
 ): Promise<ExternalDuplicate[]> {
   // Fetch existing entries not in the collections being added
   const existingEntries = await lookupRepo.find({
@@ -140,7 +135,7 @@ export async function findExternalDuplicates(
 export async function insertRecordsToLookup(
   lookupRepo: Repository,
   records: NewRecord[],
-  collectionTitles: Record<string, string>
+  collectionTitles: Record<string, string>,
 ): Promise<number> {
   let synced = 0;
   for (const record of records) {

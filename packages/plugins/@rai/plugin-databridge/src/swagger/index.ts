@@ -385,7 +385,12 @@ export default {
             schema: { type: 'string', example: 'models' },
             description: "Platform ID (e.g., '9') or slug (e.g., 'models')",
           },
-          { name: 'page', in: 'query', schema: { type: 'integer', default: 1, example: 1 }, description: 'Page number' },
+          {
+            name: 'page',
+            in: 'query',
+            schema: { type: 'integer', default: 1, example: 1 },
+            description: 'Page number',
+          },
           {
             name: 'pageSize',
             in: 'query',

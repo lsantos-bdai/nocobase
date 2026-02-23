@@ -43,7 +43,7 @@ export function ViewModal({ open, platform, onClose }: ViewModalProps) {
         setLoading(false);
       }
     },
-    [api, platform]
+    [api, platform],
   );
 
   React.useEffect(() => {

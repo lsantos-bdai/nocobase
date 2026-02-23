@@ -71,10 +71,7 @@ export async function syncLookupCollection(ctx: Context, platform: Platform): Pr
 /**
  * Fetch collection titles from the collections table.
  */
-export async function getCollectionTitles(
-  db: Database,
-  collectionNames: string[]
-): Promise<Record<string, string>> {
+export async function getCollectionTitles(db: Database, collectionNames: string[]): Promise<Record<string, string>> {
   if (collectionNames.length === 0) {
     return {};
   }
@@ -110,7 +107,7 @@ export async function updateRegisteredCollections(
   ctx: Context,
   identifier: string | number,
   toAdd: string[],
-  toRemove: string[]
+  toRemove: string[],
 ): Promise<void> {
   const platformsRepo = ctx.db.getRepository('databridge_platforms');
   const isNumeric = typeof identifier === 'number' || /^\d+$/.test(String(identifier));
@@ -146,7 +143,7 @@ export async function updateRegisteredCollections(
 export async function removeFromRegisteredCollections(
   ctx: Context,
   identifier: string | number,
-  toRemove: string[]
+  toRemove: string[],
 ): Promise<void> {
   const platformsRepo = ctx.db.getRepository('databridge_platforms');
   const isNumeric = typeof identifier === 'number' || /^\d+$/.test(String(identifier));

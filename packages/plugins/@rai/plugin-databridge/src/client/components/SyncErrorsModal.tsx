@@ -95,7 +95,9 @@ export function SyncErrorsModal({ open, result, onClose }: SyncErrorsModalProps)
         <Alert
           type="error"
           style={{ marginBottom: 12 }}
-          message={`${grouped.missingCollections.length} collection${grouped.missingCollections.length !== 1 ? 's' : ''} no longer exist`}
+          message={`${grouped.missingCollections.length} collection${
+            grouped.missingCollections.length !== 1 ? 's' : ''
+          } no longer exist`}
           description={
             <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
               {grouped.missingCollections.map((name, i) => (

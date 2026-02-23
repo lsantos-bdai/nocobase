@@ -1,9 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
-import {
-  getPlatformOrThrow,
-  getLookupRepoOrThrow,
-  getCollectionTitles,
-} from '../utils';
+import { getPlatformOrThrow, getLookupRepoOrThrow, getCollectionTitles } from '../utils';
 import { syncRecordsToLookup } from '../utils';
 
 export async function syncAll(ctx: Context, next: Next) {
@@ -50,12 +46,7 @@ export async function syncAll(ctx: Context, next: Next) {
       fields: ['id', 'name'],
     });
 
-    const { synced, errors } = await syncRecordsToLookup(
-      lookupRepo,
-      records,
-      collName,
-      collTitle
-    );
+    const { synced, errors } = await syncRecordsToLookup(lookupRepo, records, collName, collTitle);
 
     totalSynced += synced;
     allErrors.push(...errors);
