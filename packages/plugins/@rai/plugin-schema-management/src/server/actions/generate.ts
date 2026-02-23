@@ -9,15 +9,30 @@ export async function generate(ctx: Context, next: Next) {
     ctx.throw(400, 'collection parameter is required');
   }
 
-  const collection = ctx.db.getCollection(collectionName);
+  // Try direct lookup first (internal name)
+  let collection = ctx.db.getCollection(collectionName);
+  let collMeta;
+
+  if (!collection) {
+    // Try finding by title (human-readable name)
+    collMeta = await ctx.db.getRepository('collections').findOne({
+      filter: { title: collectionName },
+    });
+    if (collMeta) {
+      collection = ctx.db.getCollection(collMeta.name);
+    }
+  }
+
   if (!collection) {
     ctx.throw(404, `Collection '${collectionName}' not found`);
   }
 
-  // Get collection title from metadata
-  const collMeta = await ctx.db.getRepository('collections').findOne({
-    filter: { name: collectionName },
-  });
+  // Get collection title from metadata if not already fetched
+  if (!collMeta) {
+    collMeta = await ctx.db.getRepository('collections').findOne({
+      filter: { name: collection.name },
+    });
+  }
   const title = collMeta?.title || collectionName;
 
   // Build OpenAPI schema from fields
@@ -59,5 +74,6 @@ export async function generate(ctx: Context, next: Next) {
 
   ctx.body = yaml.dump(spec, { lineWidth: -1 });
   ctx.type = 'text/yaml';
+  ctx.withoutDataWrapping = true;
   await next();
 }
