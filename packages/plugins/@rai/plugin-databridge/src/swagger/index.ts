@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 export default {
   info: {
     title: 'NocoBase API - Databridge plugin',
@@ -59,7 +68,11 @@ export default {
                     properties: {
                       platform: { type: 'string', example: 'models' },
                       collection: { type: 'string', example: 't_98x374ie2j7', description: 'Internal collection name' },
-                      collection_title: { type: 'string', example: 'Robots', description: 'Human-readable collection title' },
+                      collection_title: {
+                        type: 'string',
+                        example: 'Robots',
+                        description: 'Human-readable collection title',
+                      },
                       data: {
                         type: 'object',
                         description:
@@ -105,7 +118,7 @@ export default {
     },
     '/databridge:listCollections': {
       get: {
-        tags: ['databridge'],
+        tags: ['databridge_platforms'],
         summary: 'List all collections with sync eligibility',
         responses: {
           200: {
