@@ -1,5 +1,6 @@
 import { Context, Next } from '@nocobase/actions';
 import { Collection } from '@nocobase/database';
+import { getSchemaUrl, ResponseType } from '../constants';
 import { getPlatformBySlugOrThrow } from '../utils';
 
 /**
@@ -85,11 +86,12 @@ interface AssetResult {
 }
 
 export async function lookup(ctx: Context, next: Next) {
-  const { platform, asset_name, get_relations, relation_depth } = ctx.request.query as {
+  const { platform, asset_name, get_relations, relation_depth, response_type } = ctx.request.query as {
     platform?: string;
     asset_name?: string | string[];
     get_relations?: string;
     relation_depth?: string;
+    response_type?: ResponseType;
   };
 
   if (!platform || !asset_name) {
@@ -184,6 +186,19 @@ export async function lookup(ctx: Context, next: Next) {
     }
   }
 
-  ctx.body = result;
+  // Transform response if response_type is dippy_prod or dippy_dev
+  if (response_type === 'dippy_prod' || response_type === 'dippy_dev') {
+    const flatItems = Object.values(result).map((assetResult) => {
+      const schemaUrl = getSchemaUrl(response_type, assetResult.collection_title);
+      return {
+        $schema: schemaUrl,
+        ...assetResult.data,
+      };
+    });
+    ctx.body = flatItems;
+  } else {
+    ctx.body = result;
+  }
+
   await next();
 }

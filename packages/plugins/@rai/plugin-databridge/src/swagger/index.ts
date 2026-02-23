@@ -55,6 +55,14 @@ export default {
             description:
               'How deep to traverse relations (only used when get_relations=true). 1 = direct relations only.',
           },
+          {
+            name: 'response_type',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', enum: ['default', 'dippy_prod', 'dippy_dev'], default: 'default' },
+            description:
+              'Response format. "default" returns nested object keyed by asset name. "dippy_prod" or "dippy_dev" returns flattened array with $schema URLs pointing to GCS-hosted OpenAPI schemas.',
+          },
         ],
         responses: {
           200: {
