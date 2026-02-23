@@ -4,3 +4,6 @@ export { syncPlatform } from './sync-platform';
 export { destroyPlatform } from './destroy-platform';
 export { listCollections } from './list-collections';
 export { viewPlatform } from './view-platform';
+export { syncAll } from './sync-all';
+export { syncCollection } from './sync-collection';
+export { removeCollection } from './remove-collection';

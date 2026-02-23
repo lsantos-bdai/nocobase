@@ -66,7 +66,7 @@ export async function createPlatform(ctx: Context, next: Next) {
 
   // 2. Register in directory
   const platform = await ctx.db.getRepository('databridge_platforms').create({
-    values: { name, slug, collectionName, description },
+    values: { name, slug, collectionName, description, registeredCollections: [] },
   });
 
   ctx.body = platform;

@@ -34,5 +34,10 @@ export default defineCollection({
       interface: 'textarea',
       uiSchema: { title: 'Description' },
     },
+    {
+      type: 'json',
+      name: 'registeredCollections',
+      defaultValue: [],
+    },
   ],
 });
