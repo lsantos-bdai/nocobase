@@ -49,21 +49,22 @@ export async function createPlatform(ctx: Context, next: Next) {
         },
         {
           type: 'string',
+          name: 'collectionTitle',
+          interface: 'input',
+          uiSchema: { title: 'Collection Title', required: true },
+        },
+        {
+          type: 'string',
           name: 'assetId',
           interface: 'input',
           uiSchema: { title: 'Asset ID', required: true },
         },
       ],
     },
+    context: {},
   });
 
-  // 2. Sync database schema to create the table
-  const collection = ctx.db.getCollection(collectionName);
-  if (collection) {
-    await collection.sync();
-  }
-
-  // 3. Register in directory
+  // 2. Register in directory
   const platform = await ctx.db.getRepository('databridge_platforms').create({
     values: { name, slug, collectionName, description },
   });

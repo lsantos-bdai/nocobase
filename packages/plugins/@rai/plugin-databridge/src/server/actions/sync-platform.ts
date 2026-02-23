@@ -43,6 +43,16 @@ export async function syncPlatform(ctx: Context, next: Next) {
   const errors: string[] = [];
   let synced = 0;
 
+  // Look up collection titles
+  const collectionRecords = await ctx.db.getRepository('collections').find({
+    filter: { name: { $in: collections } },
+    fields: ['name', 'title'],
+  });
+  const collectionTitles: Record<string, string> = {};
+  for (const coll of collectionRecords) {
+    collectionTitles[coll.name] = coll.title || coll.name;
+  }
+
   // Clear existing entries
   await lookupRepo.destroy({ filter: {} });
 
@@ -60,6 +70,7 @@ export async function syncPlatform(ctx: Context, next: Next) {
           values: {
             name: record.name,
             collection: collName,
+            collectionTitle: collectionTitles[collName] || collName,
             assetId: String(record.id),
           },
         });

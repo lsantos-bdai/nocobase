@@ -243,6 +243,7 @@ interface LookupEntry {
   id: number;
   name: string;
   collection: string;
+  collectionTitle: string;
   assetId: string;
 }
 
@@ -259,7 +260,6 @@ function ViewModal({
   const [entries, setEntries] = React.useState<LookupEntry[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [pagination, setPagination] = React.useState({ page: 1, pageSize: 50, total: 0 });
-  const [collectionTitles, setCollectionTitles] = React.useState<Record<string, string>>({});
 
   const fetchEntries = React.useCallback(async (page: number, pageSize: number) => {
     if (!platform) return;
@@ -274,7 +274,6 @@ function ViewModal({
       const meta = responseBody.meta;
       setEntries(Array.isArray(data) ? data : []);
       setPagination({ page: meta?.page || 1, pageSize: meta?.pageSize || 50, total: meta?.total || 0 });
-      setCollectionTitles(responseBody.collectionTitles || {});
     } catch (err) {
       console.error('Failed to fetch entries:', err);
       message.error('Failed to load entries');
@@ -294,12 +293,7 @@ function ViewModal({
 
   const columns = [
     { title: 'Asset Name', dataIndex: 'name', key: 'name' },
-    {
-      title: 'Source Collection',
-      dataIndex: 'collection',
-      key: 'collection',
-      render: (collName: string) => collectionTitles[collName] || collName,
-    },
+    { title: 'Source Collection', dataIndex: 'collectionTitle', key: 'collectionTitle' },
     { title: 'Asset ID', dataIndex: 'assetId', key: 'assetId' },
   ];
 

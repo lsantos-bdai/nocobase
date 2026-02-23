@@ -41,7 +41,7 @@ export async function lookup(ctx: Context, next: Next) {
   ctx.body = {
     platform,
     asset_name,
-    collection: lookupResult.collection,
+    collection: lookupResult.collectionTitle || lookupResult.collection,
     data: asset,
   };
 

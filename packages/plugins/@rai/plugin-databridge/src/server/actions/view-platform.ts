@@ -27,25 +27,9 @@ export async function viewPlatform(ctx: Context, next: Next) {
     lookupRepo.count(),
   ]);
 
-  // Get unique collection names from entries
-  const collectionNames = [...new Set(entries.map((e: any) => e.collection))];
-
-  // Look up titles from NocoBase collections repository
-  const collectionRecords = await ctx.db.getRepository('collections').find({
-    filter: { name: { $in: collectionNames } },
-    fields: ['name', 'title'],
-  });
-
-  // Build name → title map
-  const collectionTitles: Record<string, string> = {};
-  for (const coll of collectionRecords) {
-    collectionTitles[coll.name] = coll.title || coll.name;
-  }
-
   ctx.body = {
     data: entries,
     meta: { page, pageSize, total },
-    collectionTitles,
   };
 
   await next();
