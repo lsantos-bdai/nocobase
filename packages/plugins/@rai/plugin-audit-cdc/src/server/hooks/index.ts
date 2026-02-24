@@ -1,0 +1,5 @@
+export { createBeforeUpdateHook } from './before-update';
+export { createBeforeDestroyHook } from './before-destroy';
+export { createAfterCreateHook } from './after-create';
+export { createAfterUpdateHook } from './after-update';
+export { createAfterDestroyHook } from './after-destroy';
