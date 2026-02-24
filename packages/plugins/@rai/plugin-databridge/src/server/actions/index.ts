@@ -1,4 +1,7 @@
-export { lookup } from './lookup';
+export { get } from './get';
+export { search } from './search';
+export { list } from './list';
+export { indexAssets } from './index-assets';
 export { createPlatform } from './create-platform';
 export { syncPlatform } from './sync-platform';
 export { destroyPlatform } from './destroy-platform';

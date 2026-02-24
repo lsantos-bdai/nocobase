@@ -1,7 +1,10 @@
 import { Plugin } from '@nocobase/server';
 import { Model, Transaction } from 'sequelize';
 import {
-  lookup,
+  get,
+  search,
+  list,
+  indexAssets,
   createPlatform,
   syncPlatform,
   destroyPlatform,
@@ -74,11 +77,14 @@ export class PluginDatabridgeServer extends Plugin {
       await platformsCollection.sync();
     }
 
-    // Register databridge resource with lookup and listCollections actions
+    // Register databridge resource actions
     this.app.resourceManager.define({
       name: 'databridge',
       actions: {
-        lookup,
+        get,
+        search,
+        list,
+        index: indexAssets,
         listCollections,
       },
     });
@@ -95,11 +101,11 @@ export class PluginDatabridgeServer extends Plugin {
     // ACL permissions - register snippet for role-based access
     this.app.acl.registerSnippet({
       name: 'pm.databridge',
-      actions: ['databridge_platforms:*', 'databridge:lookup', 'databridge:listCollections'],
+      actions: ['databridge_platforms:*', 'databridge:get', 'databridge:search', 'databridge:list', 'databridge:index', 'databridge:listCollections'],
     });
 
-    // Allow logged-in users to use lookup and listCollections
-    this.app.acl.allow('databridge', ['lookup', 'listCollections'], 'loggedIn');
+    // Allow logged-in users to use databridge actions
+    this.app.acl.allow('databridge', ['get', 'search', 'list', 'index', 'listCollections'], 'loggedIn');
 
     // Allow databridge_platforms actions for users with pm.databridge snippet
     this.app.acl.allow(

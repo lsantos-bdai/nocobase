@@ -85,7 +85,7 @@ interface AssetResult {
   data: Record<string, unknown>;
 }
 
-export async function lookup(ctx: Context, next: Next) {
+export async function get(ctx: Context, next: Next) {
   const { platform, asset_name, get_relations, relation_depth, response_type } = ctx.request.query as {
     platform?: string;
     asset_name?: string | string[];
@@ -199,6 +199,8 @@ export async function lookup(ctx: Context, next: Next) {
   } else {
     ctx.body = result;
   }
+
+  ctx.withoutDataWrapping = true;
 
   await next();
 }

@@ -16,18 +16,18 @@ export default {
     { name: 'databridge_platforms', description: 'Platform management' },
   ],
   paths: {
-    '/databridge:lookup': {
+    '/databridge:get': {
       get: {
         tags: ['databridge'],
-        summary: 'Look up assets by platform and name(s)',
+        summary: 'Get assets by platform and name(s)',
         description:
-          'Look up one or more assets by name. Supports relation traversal to recursively fetch related assets.',
+          'Get one or more assets by name. Supports relation traversal to recursively fetch related assets.',
         parameters: [
           {
             name: 'platform',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: 'models' },
+            schema: { type: 'string' },
             description: 'Platform slug',
           },
           {
@@ -36,7 +36,6 @@ export default {
             required: true,
             schema: {
               oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
-              example: 'spot_arm_v2',
             },
             description: 'Asset name(s) to look up. Can be a single name or multiple names.',
           },
@@ -44,14 +43,14 @@ export default {
             name: 'get_relations',
             in: 'query',
             required: false,
-            schema: { type: 'boolean', default: false, example: false },
+            schema: { type: 'boolean', default: false },
             description: 'If true, recursively fetch related assets registered in the same platform.',
           },
           {
             name: 'relation_depth',
             in: 'query',
             required: false,
-            schema: { type: 'integer', default: 1, minimum: 0, example: 1 },
+            schema: { type: 'integer', default: 1, minimum: 0 },
             description:
               'How deep to traverse relations (only used when get_relations=true). 1 = direct relations only.',
           },
@@ -74,45 +73,16 @@ export default {
                   additionalProperties: {
                     type: 'object',
                     properties: {
-                      platform: { type: 'string', example: 'models' },
-                      collection: { type: 'string', example: 't_98x374ie2j7', description: 'Internal collection name' },
+                      platform: { type: 'string', description: 'Platform slug' },
+                      collection: { type: 'string', description: 'Internal collection name' },
                       collection_title: {
                         type: 'string',
-                        example: 'Robots',
                         description: 'Human-readable collection title',
                       },
                       data: {
                         type: 'object',
                         description:
                           'Asset data with resolved field names (from field titles, normalized to snake_case) and relation values (fetched from related records)',
-                        example: {
-                          name: 'spot_arm_v2',
-                          robot_model: 'Franka Research 3',
-                          serial_number: 'SN-001234',
-                          status: 'active',
-                        },
-                      },
-                    },
-                  },
-                  example: {
-                    spot_arm_v2: {
-                      platform: 'models',
-                      collection: 't_abc123xyz',
-                      collection_title: 'Robots',
-                      data: {
-                        name: 'spot_arm_v2',
-                        robot_model: 'Franka Research 3',
-                        serial_number: 'SN-001234',
-                        status: 'active',
-                      },
-                    },
-                    'Franka Research 3': {
-                      platform: 'models',
-                      collection: 't_def456uvw',
-                      collection_title: 'Robot Models',
-                      data: {
-                        name: 'Franka Research 3',
-                        manufacturer: 'Franka Emika',
                       },
                     },
                   },
@@ -121,6 +91,151 @@ export default {
             },
           },
           400: { description: 'Missing required parameters' },
+        },
+      },
+    },
+    '/databridge:search': {
+      get: {
+        tags: ['databridge'],
+        summary: 'Search assets across collections',
+        description:
+          'Search for assets across all collections (or a specific collection) in a platform. Performs case-insensitive substring matching across text fields and relation name fields.',
+        parameters: [
+          {
+            name: 'platform',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Platform slug',
+          },
+          {
+            name: 'q',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Search term (case-insensitive substring match)',
+          },
+          {
+            name: 'collection',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Limit search to a specific collection (accepts internal name or title)',
+          },
+          {
+            name: 'limit',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 10, maximum: 100 },
+            description: 'Maximum number of results to return (default: 10, max: 100)',
+          },
+          {
+            name: 'propertySearch',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean', default: false },
+            description:
+              'If true, search across all text fields and relations. If false (default), only search asset names.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Search results (keyed by asset name)',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  additionalProperties: {
+                    type: 'object',
+                    properties: {
+                      platform: { type: 'string', description: 'Platform slug' },
+                      collection: { type: 'string', description: 'Internal collection name' },
+                      collection_title: { type: 'string', description: 'Human-readable collection title' },
+                      data: {
+                        type: 'object',
+                        description: 'Asset data with resolved field names and relation values',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing required parameters' },
+          404: { description: 'Platform or collection not found' },
+        },
+      },
+    },
+    '/databridge:list': {
+      get: {
+        tags: ['databridge'],
+        summary: 'List collections in a platform',
+        description: 'Returns a list of all collections registered in a platform with their names and titles.',
+        parameters: [
+          {
+            name: 'platform',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Platform slug',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'List of collections',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      name: { type: 'string', description: 'Internal collection name' },
+                      title: { type: 'string', description: 'Human-readable collection title' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing required parameters' },
+          404: { description: 'Platform not found' },
+        },
+      },
+    },
+    '/databridge:index': {
+      get: {
+        tags: ['databridge'],
+        summary: 'Index all asset names by collection',
+        description:
+          'Returns a dictionary where each key is a collection title and the value is a list of all asset names in that collection.',
+        parameters: [
+          {
+            name: 'platform',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Platform slug',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Asset names indexed by collection',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  additionalProperties: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'List of asset names in this collection',
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing required parameters' },
+          404: { description: 'Platform not found' },
         },
       },
     },
@@ -138,9 +253,9 @@ export default {
                   items: {
                     type: 'object',
                     properties: {
-                      name: { type: 'string', example: 'robots' },
-                      title: { type: 'string', example: 'Robots' },
-                      hasNameField: { type: 'boolean', example: true },
+                      name: { type: 'string', description: 'Internal collection name' },
+                      title: { type: 'string', description: 'Human-readable collection title' },
+                      hasNameField: { type: 'boolean', description: 'Whether collection has a name field' },
                     },
                   },
                 },
@@ -164,10 +279,10 @@ export default {
                   items: {
                     type: 'object',
                     properties: {
-                      id: { type: 'integer', example: 9 },
-                      name: { type: 'string', example: 'Models' },
-                      slug: { type: 'string', example: 'models' },
-                      description: { type: 'string', example: 'Robot model assets' },
+                      id: { type: 'integer' },
+                      name: { type: 'string', description: 'Display name' },
+                      slug: { type: 'string', description: 'URL-safe identifier' },
+                      description: { type: 'string' },
                       createdAt: { type: 'string', format: 'date-time' },
                       updatedAt: { type: 'string', format: 'date-time' },
                     },
@@ -188,8 +303,8 @@ export default {
             name: 'filterByTk',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: 'models' },
-            description: "Platform ID (e.g., '9') or slug (e.g., 'models')",
+            schema: { type: 'string' },
+            description: 'Platform ID or slug',
           },
         ],
         responses: {
@@ -200,10 +315,10 @@ export default {
                 schema: {
                   type: 'object',
                   properties: {
-                    id: { type: 'integer', example: 9 },
-                    name: { type: 'string', example: 'Models' },
-                    slug: { type: 'string', example: 'models' },
-                    description: { type: 'string', example: 'Robot model assets' },
+                    id: { type: 'integer' },
+                    name: { type: 'string', description: 'Display name' },
+                    slug: { type: 'string', description: 'URL-safe identifier' },
+                    description: { type: 'string' },
                     createdAt: { type: 'string', format: 'date-time' },
                     updatedAt: { type: 'string', format: 'date-time' },
                   },
@@ -226,9 +341,9 @@ export default {
                 type: 'object',
                 required: ['name', 'slug'],
                 properties: {
-                  name: { type: 'string', description: 'Display name', example: 'Models' },
-                  slug: { type: 'string', description: 'URL-safe identifier', example: 'models' },
-                  description: { type: 'string', example: 'Robot model assets' },
+                  name: { type: 'string', description: 'Display name' },
+                  slug: { type: 'string', description: 'URL-safe identifier' },
+                  description: { type: 'string' },
                 },
               },
             },
@@ -250,8 +365,8 @@ export default {
             name: 'filterByTk',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: '9' },
-            description: "Platform ID (e.g., '9') or slug (e.g., 'models')",
+            schema: { type: 'string' },
+            description: 'Platform ID or slug',
           },
         ],
         requestBody: {
@@ -265,7 +380,6 @@ export default {
                     type: 'array',
                     items: { type: 'string' },
                     description: 'Collection names to sync',
-                    example: ['robots', 'sensors'],
                   },
                 },
               },
@@ -280,8 +394,8 @@ export default {
                 schema: {
                   type: 'object',
                   properties: {
-                    synced: { type: 'integer', example: 42 },
-                    errors: { type: 'array', items: { type: 'string' }, example: [] },
+                    synced: { type: 'integer', description: 'Number of entries synced' },
+                    errors: { type: 'array', items: { type: 'string' } },
                   },
                 },
               },
@@ -301,8 +415,8 @@ export default {
             name: 'filterByTk',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: 'models' },
-            description: "Platform ID (e.g., '9') or slug (e.g., 'models')",
+            schema: { type: 'string' },
+            description: 'Platform ID or slug',
           },
         ],
         responses: {
@@ -313,9 +427,9 @@ export default {
                 schema: {
                   type: 'object',
                   properties: {
-                    synced: { type: 'integer', example: 150 },
-                    collections: { type: 'array', items: { type: 'string' }, example: ['robots', 'sensors'] },
-                    errors: { type: 'array', items: { type: 'string' }, example: [] },
+                    synced: { type: 'integer', description: 'Number of entries synced' },
+                    collections: { type: 'array', items: { type: 'string' } },
+                    errors: { type: 'array', items: { type: 'string' } },
                   },
                 },
               },
@@ -335,8 +449,8 @@ export default {
             name: 'filterByTk',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: 'models' },
-            description: "Platform ID (e.g., '9') or slug (e.g., 'models')",
+            schema: { type: 'string' },
+            description: 'Platform ID or slug',
           },
         ],
         requestBody: {
@@ -349,7 +463,6 @@ export default {
                   collection: {
                     type: 'string',
                     description: 'Collection name to re-sync',
-                    example: 'robots',
                   },
                 },
               },
@@ -364,9 +477,9 @@ export default {
                 schema: {
                   type: 'object',
                   properties: {
-                    synced: { type: 'integer', example: 25 },
-                    collection: { type: 'string', example: 'robots' },
-                    errors: { type: 'array', items: { type: 'string' }, example: [] },
+                    synced: { type: 'integer', description: 'Number of entries synced' },
+                    collection: { type: 'string' },
+                    errors: { type: 'array', items: { type: 'string' } },
                   },
                 },
               },
@@ -388,8 +501,8 @@ export default {
             name: 'filterByTk',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: 'models' },
-            description: "Platform ID (e.g., '9') or slug (e.g., 'models')",
+            schema: { type: 'string' },
+            description: 'Platform ID or slug',
           },
         ],
         requestBody: {
@@ -402,7 +515,6 @@ export default {
                   collection: {
                     type: 'string',
                     description: 'Collection name to remove',
-                    example: 'robots',
                   },
                 },
               },
@@ -417,8 +529,8 @@ export default {
                 schema: {
                   type: 'object',
                   properties: {
-                    removed: { type: 'integer', description: 'Number of lookup entries deleted', example: 25 },
-                    collection: { type: 'string', example: 'robots' },
+                    removed: { type: 'integer', description: 'Number of lookup entries deleted' },
+                    collection: { type: 'string' },
                   },
                 },
               },
@@ -438,8 +550,8 @@ export default {
             name: 'filterByTk',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: '9' },
-            description: "Platform ID (e.g., '9') or slug (e.g., 'models')",
+            schema: { type: 'string' },
+            description: 'Platform ID or slug',
           },
         ],
         responses: {
@@ -457,19 +569,19 @@ export default {
             name: 'filterByTk',
             in: 'query',
             required: true,
-            schema: { type: 'string', example: 'models' },
-            description: "Platform ID (e.g., '9') or slug (e.g., 'models')",
+            schema: { type: 'string' },
+            description: 'Platform ID or slug',
           },
           {
             name: 'page',
             in: 'query',
-            schema: { type: 'integer', default: 1, example: 1 },
+            schema: { type: 'integer', default: 1 },
             description: 'Page number',
           },
           {
             name: 'pageSize',
             in: 'query',
-            schema: { type: 'integer', default: 50, example: 50 },
+            schema: { type: 'integer', default: 50 },
             description: 'Items per page',
           },
         ],
@@ -486,19 +598,19 @@ export default {
                       items: {
                         type: 'object',
                         properties: {
-                          id: { type: 'integer', example: 1 },
-                          name: { type: 'string', description: 'Asset name', example: 'spot_arm_v2' },
-                          collection: { type: 'string', description: 'Source collection name', example: 'robots' },
-                          assetId: { type: 'string', description: 'Asset ID in source collection', example: '42' },
+                          id: { type: 'integer' },
+                          name: { type: 'string', description: 'Asset name' },
+                          collection: { type: 'string', description: 'Source collection name' },
+                          assetId: { type: 'string', description: 'Asset ID in source collection' },
                         },
                       },
                     },
                     meta: {
                       type: 'object',
                       properties: {
-                        page: { type: 'integer', example: 1 },
-                        pageSize: { type: 'integer', example: 50 },
-                        total: { type: 'integer', example: 150 },
+                        page: { type: 'integer' },
+                        pageSize: { type: 'integer' },
+                        total: { type: 'integer' },
                       },
                     },
                   },

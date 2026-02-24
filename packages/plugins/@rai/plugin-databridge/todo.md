@@ -43,15 +43,25 @@
   - [ ] when the name of an asset gets changed in a collection
 
 
-- [ ] schema management
+- [ ] openapi schemas need to be migratable
 
-~~- [ ] add proper documentation to all of the other collection endpoint~~
+- [X] add proper documentation to all of the other collection endpoint
 - [X] how are users supposed to use databridge_platforms Platform management what is `filterByTk`? If this is the id for the platform how do expect the user to get this using the api? `list` doesn't provide the id for the platform.
   - [X] shouldn't we expose all the functions for sync or just as a principal all functions we create in general
-- [-] we should move `/databridge:listCollections` to `Platform management`
+- [X] we should move `/databridge:listCollections` to `Platform management`
 
 
-- [ ] hide all t_
+- [X] hide all t_
 
 
 - [ ] CRUD on assets?
+- [ ] query across assets properties
+- [ ] search assets in a platform
+- [ ] get rid of all default `spot_arm_v2`
+
+
+## Deliverable
+- admin script:
+  - import schemas via openapi spec
+  - If I delete all tables and reimport them how do I configure the UI to be aware of the new table with the same schema but different name?
+  - how do I update schemas programatically
