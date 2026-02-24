@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Switch, Spin, message, Typography, Space, Statistic, Row, Col, Button, Badge } from 'antd';
-import { EyeOutlined } from '@ant-design/icons';
+import { Card, Table, Switch, Spin, message, Typography, Space, Statistic, Row, Col, Button, Tabs } from 'antd';
+import { EyeOutlined, EditOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useAPIClient } from '@nocobase/client';
-import { EditableCell } from './EditableCell';
 import { SnapshotDrawer } from './SnapshotDrawer';
+import { AllActivityPanel } from './AllActivityPanel';
+import { EditConfigModal } from './EditConfigModal';
 
 const { Title, Text } = Typography;
 
@@ -29,6 +30,7 @@ export const CDCConfigPage: React.FC = () => {
   const [updating, setUpdating] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [drawerCollection, setDrawerCollection] = useState<{ name: string; title: string } | null>(null);
+  const [editingCollection, setEditingCollection] = useState<CollectionConfig | null>(null);
 
   const fetchConfigs = async () => {
     setLoading(true);
@@ -80,7 +82,10 @@ export const CDCConfigPage: React.FC = () => {
     }
   };
 
-  const handleRetentionChange = async (collectionName: string, retentionDays: number | null) => {
+  const handleConfigSave = async (retentionDays: number | null, maxVersions: number | null) => {
+    if (!editingCollection) return;
+
+    const collectionName = editingCollection.collectionName;
     try {
       await api.request({
         url: 'cdc:configure',
@@ -88,32 +93,14 @@ export const CDCConfigPage: React.FC = () => {
         data: {
           collectionName,
           retentionDays,
-        },
-      });
-      message.success(`Updated retention for ${collectionName}`);
-      setConfigs((prev) =>
-        prev.map((c) => (c.collectionName === collectionName ? { ...c, retentionDays } : c)),
-      );
-    } catch (err: any) {
-      message.error(`Failed to update: ${err.message || 'Unknown error'}`);
-      throw err;
-    }
-  };
-
-  const handleMaxVersionsChange = async (collectionName: string, maxVersions: number | null) => {
-    try {
-      await api.request({
-        url: 'cdc:configure',
-        method: 'POST',
-        data: {
-          collectionName,
           maxVersions,
         },
       });
-      message.success(`Updated max versions for ${collectionName}`);
+      message.success(`Updated settings for ${editingCollection.collectionTitle}`);
       setConfigs((prev) =>
-        prev.map((c) => (c.collectionName === collectionName ? { ...c, maxVersions } : c)),
+        prev.map((c) => (c.collectionName === collectionName ? { ...c, retentionDays, maxVersions } : c)),
       );
+      setEditingCollection(null);
     } catch (err: any) {
       message.error(`Failed to update: ${err.message || 'Unknown error'}`);
       throw err;
@@ -150,49 +137,46 @@ export const CDCConfigPage: React.FC = () => {
       title: 'Retention (days)',
       dataIndex: 'retentionDays',
       key: 'retentionDays',
-      width: 150,
-      render: (days: number | null, record: CollectionConfig) => (
-        <EditableCell
-          value={days}
-          nullLabel="Forever"
-          onChange={(value) => handleRetentionChange(record.collectionName, value)}
-          min={1}
-          max={3650}
-        />
+      width: 130,
+      render: (days: number | null) => (
+        <span>{days === null ? 'Forever' : days}</span>
       ),
     },
     {
       title: 'Max Versions',
       dataIndex: 'maxVersions',
       key: 'maxVersions',
-      width: 150,
-      render: (versions: number | null, record: CollectionConfig) => (
-        <EditableCell
-          value={versions}
-          nullLabel="Unlimited"
-          onChange={(value) => handleMaxVersionsChange(record.collectionName, value)}
-          min={1}
-          max={9999}
-        />
+      width: 130,
+      render: (versions: number | null) => (
+        <span>{versions === null ? 'Unlimited' : versions}</span>
       ),
     },
     {
       title: 'Actions',
       key: 'actions',
-      width: 120,
+      width: 150,
       render: (_: unknown, record: CollectionConfig) => (
-        <Button
-          type="link"
-          icon={<EyeOutlined />}
-          onClick={() =>
-            setDrawerCollection({
-              name: record.collectionName,
-              title: record.collectionTitle,
-            })
-          }
-        >
-          View
-        </Button>
+        <Space>
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => setEditingCollection(record)}
+          >
+            Edit
+          </Button>
+          <Button
+            type="link"
+            icon={<EyeOutlined />}
+            onClick={() =>
+              setDrawerCollection({
+                name: record.collectionName,
+                title: record.collectionTitle,
+              })
+            }
+          >
+            View
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -204,6 +188,50 @@ export const CDCConfigPage: React.FC = () => {
       </div>
     );
   }
+
+  const enabledCollections = configs
+    .filter((c) => c.enabled)
+    .map((c) => ({ collectionName: c.collectionName, collectionTitle: c.collectionTitle }));
+
+  const tabItems = [
+    {
+      key: 'settings',
+      label: (
+        <span>
+          <SettingOutlined />
+          Collection Settings
+        </span>
+      ),
+      children: (
+        <Card>
+          <Table
+            dataSource={configs}
+            columns={columns}
+            rowKey="collectionName"
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: true,
+              showTotal: (total) => `Total ${total} collections`,
+            }}
+          />
+        </Card>
+      ),
+    },
+    {
+      key: 'activity',
+      label: (
+        <span>
+          <UnorderedListOutlined />
+          All Activity
+        </span>
+      ),
+      children: (
+        <Card>
+          <AllActivityPanel enabledCollections={enabledCollections} />
+        </Card>
+      ),
+    },
+  ];
 
   return (
     <div style={{ padding: '24px' }}>
@@ -235,24 +263,23 @@ export const CDCConfigPage: React.FC = () => {
         </Col>
       </Row>
 
-      <Card title="Collection Settings">
-        <Table
-          dataSource={configs}
-          columns={columns}
-          rowKey="collectionName"
-          pagination={{
-            pageSize: 20,
-            showSizeChanger: true,
-            showTotal: (total) => `Total ${total} collections`,
-          }}
-        />
-      </Card>
+      <Tabs defaultActiveKey="settings" items={tabItems} />
 
       <SnapshotDrawer
         visible={drawerCollection !== null}
         collectionName={drawerCollection?.name || ''}
         collectionTitle={drawerCollection?.title || ''}
         onClose={() => setDrawerCollection(null)}
+      />
+
+      <EditConfigModal
+        visible={editingCollection !== null}
+        collectionName={editingCollection?.collectionName || ''}
+        collectionTitle={editingCollection?.collectionTitle || ''}
+        retentionDays={editingCollection?.retentionDays ?? null}
+        maxVersions={editingCollection?.maxVersions ?? null}
+        onSave={handleConfigSave}
+        onCancel={() => setEditingCollection(null)}
       />
     </div>
   );

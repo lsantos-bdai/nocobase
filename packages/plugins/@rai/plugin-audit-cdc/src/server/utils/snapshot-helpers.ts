@@ -122,3 +122,85 @@ export function getPlainData(model: Model): Record<string, unknown> {
   }
   return model.toJSON ? model.toJSON() : { ...model };
 }
+
+/**
+ * Get collection config (retentionDays, maxVersions)
+ */
+export async function getCollectionConfig(
+  db: Database,
+  collectionName: string,
+): Promise<{ retentionDays: number | null; maxVersions: number | null } | null> {
+  try {
+    const configRepo = db.getRepository('cdc_config');
+    const config = await configRepo.findOne({
+      filter: { collectionName },
+    });
+
+    if (!config) {
+      return null;
+    }
+
+    return {
+      retentionDays: config.get('retentionDays') as number | null,
+      maxVersions: config.get('maxVersions') as number | null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cleanup old snapshots based on collection config.
+ * Called after creating a new snapshot.
+ *
+ * @param db - Database instance
+ * @param collectionName - Collection name
+ * @param recordId - Record ID (for maxVersions cleanup)
+ */
+export async function cleanupSnapshots(
+  db: Database,
+  collectionName: string,
+  recordId: string,
+): Promise<void> {
+  const config = await getCollectionConfig(db, collectionName);
+  if (!config) {
+    return;
+  }
+
+  const snapshotRepo = db.getRepository('cdc_snapshots');
+
+  // Cleanup by maxVersions - keep only the N most recent versions for this record
+  if (config.maxVersions !== null && config.maxVersions > 0) {
+    const snapshots = await snapshotRepo.find({
+      filter: { collectionName, recordId },
+      sort: ['-version'],
+      fields: ['id', 'version'],
+    });
+
+    if (snapshots.length > config.maxVersions) {
+      const toDelete = snapshots.slice(config.maxVersions);
+      const idsToDelete = toDelete.map((s) => s.get('id'));
+
+      if (idsToDelete.length > 0) {
+        await snapshotRepo.destroy({
+          filter: { id: { $in: idsToDelete } },
+          hooks: false,
+        });
+      }
+    }
+  }
+
+  // Cleanup by retentionDays - delete snapshots older than X days for this collection
+  if (config.retentionDays !== null && config.retentionDays > 0) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - config.retentionDays);
+
+    await snapshotRepo.destroy({
+      filter: {
+        collectionName,
+        createdAt: { $lt: cutoffDate },
+      },
+      hooks: false,
+    });
+  }
+}

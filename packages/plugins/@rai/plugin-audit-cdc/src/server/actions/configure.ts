@@ -169,7 +169,7 @@ export async function listConfig(ctx: Context, next: Next) {
 /**
  * GET /api/cdc:listSnapshots
  * Query params:
- *   - collection: Collection name (required)
+ *   - collection: Collection name (optional - if not provided, returns all collections)
  *   - page: Page number (default: 1)
  *   - pageSize: Number of items per page (default: 20)
  *   - operation: Filter by operation type ('create' | 'update' | 'destroy')
@@ -188,16 +188,15 @@ export async function listSnapshots(ctx: Context, next: Next) {
     recordId,
   } = ctx.action.params;
 
-  if (!collection) {
-    ctx.throw(400, 'collection parameter is required');
-  }
-
   const snapshotRepo = ctx.db.getRepository('cdc_snapshots');
 
   // Build filter
-  const filter: Record<string, unknown> = {
-    collectionName: collection,
-  };
+  const filter: Record<string, unknown> = {};
+
+  // If collection is specified, filter by it
+  if (collection) {
+    filter.collectionName = collection;
+  }
 
   if (operation) {
     filter.operation = operation;
@@ -228,22 +227,47 @@ export async function listSnapshots(ctx: Context, next: Next) {
     appends: ['user'],
   });
 
-  // Resolve field labels and related values for the collection
-  const { fieldLabels, relatedValues } = await resolveFieldMetadata(
-    ctx.db,
-    collection,
-    snapshots
-  );
+  // Get collection titles map when returning all collections
+  const collectionTitles = collection ? {} : await getCollectionTitles(ctx.db);
+
+  // Resolve field labels and related values
+  // When collection is specified: flat structure (backward compatible)
+  // When no collection: nested by collection name
+  let fieldLabels: Record<string, unknown> = {};
+  let relatedValues: Record<string, unknown> = {};
+
+  if (collection) {
+    // Single collection - flat structure for backward compatibility
+    const metadata = await resolveFieldMetadata(ctx.db, collection, snapshots);
+    fieldLabels = metadata.fieldLabels;
+    relatedValues = metadata.relatedValues;
+  } else {
+    // All collections - nested by collection name
+    const collectionsInSnapshots = new Set<string>();
+    for (const s of snapshots) {
+      collectionsInSnapshots.add(s.get('collectionName') as string);
+    }
+
+    for (const collName of collectionsInSnapshots) {
+      const collSnapshots = snapshots.filter((s) => s.get('collectionName') === collName);
+      const metadata = await resolveFieldMetadata(ctx.db, collName, collSnapshots);
+      (fieldLabels as Record<string, Record<string, string>>)[collName] = metadata.fieldLabels;
+      (relatedValues as Record<string, Record<string, Record<string, string>>>)[collName] = metadata.relatedValues;
+    }
+  }
 
   const data = snapshots.map((snapshot) => {
     const afterData = snapshot.get('afterData') as Record<string, unknown> | null;
     const beforeData = snapshot.get('beforeData') as Record<string, unknown> | null;
     const user = snapshot.get('user') as Record<string, unknown> | null;
+    const collectionName = snapshot.get('collectionName') as string;
 
     return {
       id: snapshot.get('id'),
       recordId: snapshot.get('recordId'),
       recordName: getRecordName(afterData || beforeData),
+      collectionName,
+      collectionTitle: collectionTitles[collectionName] || collectionName,
       operation: snapshot.get('operation'),
       beforeData,
       afterData,
@@ -269,6 +293,24 @@ export async function listSnapshots(ctx: Context, next: Next) {
   };
 
   await next();
+}
+
+/**
+ * Get collection titles map from the collections table
+ */
+async function getCollectionTitles(db: any): Promise<Record<string, string>> {
+  const titles: Record<string, string> = {};
+  try {
+    const collections = await db.getRepository('collections').find({
+      fields: ['name', 'title'],
+    });
+    for (const coll of collections) {
+      titles[coll.name as string] = (coll.title as string) || (coll.name as string);
+    }
+  } catch (err) {
+    console.warn('Failed to fetch collection titles:', err);
+  }
+  return titles;
 }
 
 function getRecordName(data: Record<string, unknown> | null): string {

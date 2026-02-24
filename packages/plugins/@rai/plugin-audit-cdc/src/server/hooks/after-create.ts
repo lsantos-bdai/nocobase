@@ -5,6 +5,7 @@ import {
   getPlainData,
   getNextVersion,
   shouldAuditCollection,
+  cleanupSnapshots,
 } from '../utils/snapshot-helpers';
 
 export interface HookOptions {
@@ -81,6 +82,9 @@ export function createAfterCreateHook(db: Database, logger?: Logger) {
           },
           hooks: false, // Prevent CDC hooks from firing on snapshot creation
         });
+
+        // Cleanup old snapshots based on retention/maxVersions config
+        await cleanupSnapshots(db, collectionName, recordId);
       } catch (err) {
         if (logger) {
           logger.error(`[CDC] afterCreate error for ${collectionName}:`, err);
