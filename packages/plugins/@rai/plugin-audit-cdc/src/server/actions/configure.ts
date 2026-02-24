@@ -1,5 +1,4 @@
 import { Context, Next } from '@nocobase/actions';
-import { Op } from '@nocobase/database';
 import { shouldAuditCollection } from '../utils/snapshot-helpers';
 
 /**
@@ -176,7 +175,7 @@ export async function listConfig(ctx: Context, next: Next) {
  *   - operation: Filter by operation type ('create' | 'update' | 'destroy')
  *   - startDate: Filter snapshots created after this date (ISO string)
  *   - endDate: Filter snapshots created before this date (ISO string)
- *   - groupByRecord: If true, returns snapshots grouped by recordId (default: false)
+ *   - recordId: Filter by specific record ID
  */
 export async function listSnapshots(ctx: Context, next: Next) {
   const {
@@ -186,7 +185,7 @@ export async function listSnapshots(ctx: Context, next: Next) {
     operation,
     startDate,
     endDate,
-    groupByRecord = false,
+    recordId,
   } = ctx.action.params;
 
   if (!collection) {
@@ -214,112 +213,60 @@ export async function listSnapshots(ctx: Context, next: Next) {
     }
   }
 
+  if (recordId) {
+    filter.recordId = recordId;
+  }
+
   // Get total count
   const totalCount = await snapshotRepo.count({ filter });
 
-  if (groupByRecord === 'true' || groupByRecord === true) {
-    // Group by recordId - get unique records with their latest snapshot
-    const snapshots = await snapshotRepo.find({
-      filter,
-      sort: ['-createdAt'],
-    });
+  const snapshots = await snapshotRepo.find({
+    filter,
+    sort: ['-createdAt'],
+    limit: Number(pageSize),
+    offset: (Number(page) - 1) * Number(pageSize),
+    appends: ['user'],
+  });
 
-    // Group by recordId
-    const recordMap = new Map<
-      string,
-      {
-        recordId: string;
-        recordName: string;
-        snapshotCount: number;
-        latestOperation: string;
-        latestTimestamp: Date;
-        snapshots: Array<Record<string, unknown>>;
-      }
-    >();
+  // Resolve field labels and related values for the collection
+  const { fieldLabels, relatedValues } = await resolveFieldMetadata(
+    ctx.db,
+    collection,
+    snapshots
+  );
 
-    for (const snapshot of snapshots) {
-      const recordId = snapshot.get('recordId') as string;
-      const data = (snapshot.get('afterData') || snapshot.get('beforeData')) as Record<string, unknown>;
-      const recordName = getRecordName(data);
+  const data = snapshots.map((snapshot) => {
+    const afterData = snapshot.get('afterData') as Record<string, unknown> | null;
+    const beforeData = snapshot.get('beforeData') as Record<string, unknown> | null;
+    const user = snapshot.get('user') as Record<string, unknown> | null;
 
-      if (!recordMap.has(recordId)) {
-        recordMap.set(recordId, {
-          recordId,
-          recordName,
-          snapshotCount: 0,
-          latestOperation: snapshot.get('operation') as string,
-          latestTimestamp: snapshot.get('createdAt') as Date,
-          snapshots: [],
-        });
-      }
-
-      const record = recordMap.get(recordId)!;
-      record.snapshotCount++;
-      record.snapshots.push({
-        id: snapshot.get('id'),
-        operation: snapshot.get('operation'),
-        changedFields: snapshot.get('changedFields'),
-        userId: snapshot.get('userId'),
-        createdAt: snapshot.get('createdAt'),
-        version: snapshot.get('version'),
-      });
-    }
-
-    // Convert to array and paginate
-    const records = Array.from(recordMap.values());
-    const paginatedRecords = records.slice((page - 1) * pageSize, page * pageSize);
-
-    ctx.withoutDataWrapping = true;
-    ctx.body = {
-      data: paginatedRecords,
-      meta: {
-        total: records.length,
-        page: Number(page),
-        pageSize: Number(pageSize),
-        totalPages: Math.ceil(records.length / pageSize),
-      },
+    return {
+      id: snapshot.get('id'),
+      recordId: snapshot.get('recordId'),
+      recordName: getRecordName(afterData || beforeData),
+      operation: snapshot.get('operation'),
+      beforeData,
+      afterData,
+      changedFields: snapshot.get('changedFields'),
+      userId: snapshot.get('userId'),
+      userName: user ? (user.nickname || user.username || user.email || `User ${user.id}`) : null,
+      createdAt: snapshot.get('createdAt'),
+      version: snapshot.get('version'),
     };
-  } else {
-    // Flat chronological list
-    const snapshots = await snapshotRepo.find({
-      filter,
-      sort: ['-createdAt'],
-      limit: Number(pageSize),
-      offset: (Number(page) - 1) * Number(pageSize),
-      appends: ['user'],
-    });
+  });
 
-    const data = snapshots.map((snapshot) => {
-      const afterData = snapshot.get('afterData') as Record<string, unknown> | null;
-      const beforeData = snapshot.get('beforeData') as Record<string, unknown> | null;
-      const user = snapshot.get('user') as Record<string, unknown> | null;
-
-      return {
-        id: snapshot.get('id'),
-        recordId: snapshot.get('recordId'),
-        recordName: getRecordName(afterData || beforeData),
-        operation: snapshot.get('operation'),
-        beforeData,
-        afterData,
-        changedFields: snapshot.get('changedFields'),
-        userId: snapshot.get('userId'),
-        userName: user ? (user.nickname || user.username || user.email || `User ${user.id}`) : null,
-        createdAt: snapshot.get('createdAt'),
-        version: snapshot.get('version'),
-      };
-    });
-
-    ctx.withoutDataWrapping = true;
-    ctx.body = {
-      data,
-      meta: {
-        total: totalCount,
-        page: Number(page),
-        pageSize: Number(pageSize),
-        totalPages: Math.ceil(totalCount / pageSize),
-      },
-    };
-  }
+  ctx.withoutDataWrapping = true;
+  ctx.body = {
+    data,
+    fieldLabels,
+    relatedValues,
+    meta: {
+      total: totalCount,
+      page: Number(page),
+      pageSize: Number(pageSize),
+      totalPages: Math.ceil(totalCount / pageSize),
+    },
+  };
 
   await next();
 }
@@ -327,4 +274,117 @@ export async function listSnapshots(ctx: Context, next: Next) {
 function getRecordName(data: Record<string, unknown> | null): string {
   if (!data) return 'Unknown';
   return String(data.name || data.title || data.label || data.nickname || data.id || 'Unknown');
+}
+
+/**
+ * Resolves field metadata for a collection:
+ * - fieldLabels: Maps field names to their human-readable titles
+ * - relatedValues: For association fields, maps IDs to display values
+ */
+async function resolveFieldMetadata(
+  db: any,
+  collectionName: string,
+  snapshots: any[]
+): Promise<{
+  fieldLabels: Record<string, string>;
+  relatedValues: Record<string, Record<string, string>>;
+}> {
+  const fieldLabels: Record<string, string> = {};
+  const relatedValues: Record<string, Record<string, string>> = {};
+
+  try {
+    const collection = db.getCollection(collectionName);
+    if (!collection) {
+      return { fieldLabels, relatedValues };
+    }
+
+    const fields = collection.fields;
+
+    // Build field labels map and identify association fields
+    const associationFields: Array<{
+      name: string;
+      targetCollection: string;
+      foreignKey: string;
+    }> = [];
+
+    for (const [name, field] of fields) {
+      const options = field.options || {};
+
+      // Get human-readable label from uiSchema
+      const label = options.uiSchema?.title || options.uiSchema?.['x-component-props']?.title;
+      if (label) {
+        fieldLabels[name] = label;
+      }
+
+      // Identify association fields (belongsTo, hasOne)
+      if (['belongsTo', 'hasOne'].includes(field.type)) {
+        const targetCollection = options.target;
+        const foreignKey = options.foreignKey || `${name}Id`;
+        if (targetCollection) {
+          associationFields.push({ name, targetCollection, foreignKey });
+          // Also label the foreign key field
+          if (label) {
+            fieldLabels[foreignKey] = label;
+          }
+        }
+      }
+    }
+
+    // For association fields, collect all IDs from snapshot data and fetch display values
+    for (const assoc of associationFields) {
+      const ids = new Set<string>();
+
+      for (const snapshot of snapshots) {
+        const beforeData = snapshot.get('beforeData') as Record<string, unknown> | null;
+        const afterData = snapshot.get('afterData') as Record<string, unknown> | null;
+
+        // Check both the association field name and the foreign key
+        for (const key of [assoc.name, assoc.foreignKey]) {
+          const beforeId = beforeData?.[key];
+          const afterId = afterData?.[key];
+          if (beforeId !== null && beforeId !== undefined) {
+            ids.add(String(beforeId));
+          }
+          if (afterId !== null && afterId !== undefined) {
+            ids.add(String(afterId));
+          }
+        }
+      }
+
+      if (ids.size > 0) {
+        try {
+          const targetRepo = db.getRepository(assoc.targetCollection);
+          const records = await targetRepo.find({
+            filter: {
+              id: { $in: Array.from(ids).map((id) => (isNaN(Number(id)) ? id : Number(id))) },
+            },
+          });
+
+          const valueMap: Record<string, string> = {};
+          for (const record of records) {
+            const id = String(record.get('id'));
+            const displayValue =
+              record.get('name') ||
+              record.get('title') ||
+              record.get('label') ||
+              record.get('nickname') ||
+              id;
+            valueMap[id] = String(displayValue);
+          }
+
+          // Map both the field name and foreign key to the same values
+          relatedValues[assoc.name] = valueMap;
+          relatedValues[assoc.foreignKey] = valueMap;
+        } catch (err) {
+          // Silently ignore errors fetching related records
+          console.warn(`Failed to fetch related records for ${assoc.targetCollection}:`, err);
+        }
+      }
+    }
+  } catch (err) {
+    // Silently ignore errors and return empty metadata
+    console.warn(`Failed to resolve field metadata for ${collectionName}:`, err);
+  }
+
+  return { fieldLabels, relatedValues };
 }

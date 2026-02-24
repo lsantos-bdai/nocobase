@@ -97,10 +97,17 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
         },
       });
 
-      if (response?.data?.success) {
-        message.success(response.data.message || 'Rollback successful');
-        onSuccess();
+      // NocoBase wraps response - check both formats
+      const data = response?.data?.data || response?.data;
+      if (data?.success) {
+        message.success(data.message || 'Rollback successful');
         onClose();
+        onSuccess();
+      } else {
+        // Rollback completed but no explicit success flag
+        message.warning('Rollback completed but no confirmation received');
+        onClose();
+        onSuccess();
       }
     } catch (err: any) {
       message.error(`Rollback failed: ${err.message || 'Unknown error'}`);
@@ -155,7 +162,7 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
           icon={<RollbackOutlined />}
           onClick={handleRollback}
           loading={executing}
-          disabled={loadingPreview}
+          disabled={loadingPreview || executing}
         >
           Execute Rollback
         </Button>,

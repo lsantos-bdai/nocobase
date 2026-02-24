@@ -8,6 +8,8 @@ interface DiffViewerProps {
   afterData: Record<string, unknown> | null;
   changedFields?: string[];
   mode?: 'side-by-side' | 'unified';
+  fieldLabels?: Record<string, string>;
+  relatedValues?: Record<string, Record<string, string>>;
 }
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({
@@ -15,6 +17,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   afterData,
   changedFields = [],
   mode = 'unified',
+  fieldLabels = {},
+  relatedValues = {},
 }) => {
   const allKeys = new Set<string>();
   if (beforeData) Object.keys(beforeData).forEach((k) => allKeys.add(k));
@@ -22,9 +26,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   const sortedKeys = Array.from(allKeys).sort();
 
-  const formatValue = (value: unknown): string => {
+  const formatValue = (value: unknown, fieldName?: string): string => {
     if (value === null) return 'null';
     if (value === undefined) return 'undefined';
+
+    // Check if we have a display value for this field (related record)
+    if (fieldName && relatedValues[fieldName] && value !== null && value !== undefined) {
+      const displayValue = relatedValues[fieldName][String(value)];
+      if (displayValue) {
+        return displayValue;
+      }
+    }
+
     if (typeof value === 'object') {
       try {
         return JSON.stringify(value, null, 2);
@@ -33,6 +46,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       }
     }
     return String(value);
+  };
+
+  const getFieldLabel = (key: string): string => {
+    return fieldLabels[key] || key;
   };
 
   const isChanged = (key: string): boolean => {
@@ -163,8 +180,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                     borderBottom: '1px solid #f0f0f0',
                     fontWeight: changeType !== 'unchanged' ? 500 : 400,
                   }}
+                  title={fieldLabels[key] ? key : undefined}
                 >
-                  {key}
+                  {getFieldLabel(key)}
                 </td>
                 <td
                   style={{
@@ -176,9 +194,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
-                  title={formatValue(before)}
+                  title={formatValue(before, key)}
                 >
-                  {formatValue(before)}
+                  {formatValue(before, key)}
                 </td>
                 <td
                   style={{
@@ -190,9 +208,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
-                  title={formatValue(after)}
+                  title={formatValue(after, key)}
                 >
-                  {formatValue(after)}
+                  {formatValue(after, key)}
                 </td>
                 <td
                   style={{ padding: '6px 12px', borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}

@@ -1,18 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Drawer,
-  Table,
-  Tag,
-  Space,
-  Button,
-  Segmented,
-  DatePicker,
-  Select,
-  Typography,
-  Spin,
-  Empty,
-  message,
-} from 'antd';
+import { Drawer, Table, Tag, Space, Button, DatePicker, Select, Typography, Spin, Empty, message } from 'antd';
 import { RollbackOutlined, ExpandOutlined, CompressOutlined, FilterOutlined } from '@ant-design/icons';
 import { useAPIClient } from '@nocobase/client';
 import { DiffViewer } from './DiffViewer';
@@ -49,20 +36,52 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
   onClose,
 }) => {
   const api = useAPIClient();
-  const [viewMode, setViewMode] = useState<'chronological' | 'byRecord'>('chronological');
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [recordFilter, setRecordFilter] = useState<string | null>(null);
+  const [availableRecords, setAvailableRecords] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
   const [operationFilter, setOperationFilter] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<[string, string] | null>(null);
   const [expandedRows, setExpandedRows] = useState<React.Key[]>([]);
   const [rollbackSnapshot, setRollbackSnapshot] = useState<Snapshot | null>(null);
+  const [fieldLabels, setFieldLabels] = useState<Record<string, string>>({});
+  const [relatedValues, setRelatedValues] = useState<Record<string, Record<string, string>>>({});
+
+  useEffect(() => {
+    if (visible && collectionName) {
+      fetchSnapshots();
+      fetchAvailableRecords();
+    }
+  }, [visible, collectionName]);
 
   useEffect(() => {
     if (visible && collectionName) {
       fetchSnapshots();
     }
-  }, [visible, collectionName, pagination.current, pagination.pageSize, operationFilter, dateRange, viewMode]);
+  }, [pagination.current, pagination.pageSize, operationFilter, dateRange, recordFilter]);
+
+  const fetchAvailableRecords = async () => {
+    try {
+      const response = await api.request({
+        url: `${collectionName}:list`,
+        method: 'GET',
+        params: {
+          pageSize: 1000,
+        },
+      });
+
+      if (response?.data?.data) {
+        const records = response.data.data.map((record: Record<string, unknown>) => ({
+          id: String(record.id),
+          name: String(record.name || record.title || record.label || record.nickname || record.id || 'Unknown'),
+        }));
+        setAvailableRecords(records);
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch available records:', err.message);
+    }
+  };
 
   const fetchSnapshots = async () => {
     setLoading(true);
@@ -71,7 +90,6 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
         collection: collectionName,
         page: pagination.current,
         pageSize: pagination.pageSize,
-        groupByRecord: viewMode === 'byRecord',
       };
 
       if (operationFilter) {
@@ -81,6 +99,10 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
       if (dateRange) {
         params.startDate = dateRange[0];
         params.endDate = dateRange[1];
+      }
+
+      if (recordFilter) {
+        params.recordId = recordFilter;
       }
 
       const response = await api.request({
@@ -95,6 +117,13 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
           ...prev,
           total: response.data.meta?.total || 0,
         }));
+        // Store field labels and related values for display
+        if (response.data.fieldLabels) {
+          setFieldLabels(response.data.fieldLabels);
+        }
+        if (response.data.relatedValues) {
+          setRelatedValues(response.data.relatedValues);
+        }
       }
     } catch (err: any) {
       message.error(`Failed to fetch snapshots: ${err.message || 'Unknown error'}`);
@@ -122,6 +151,11 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
 
   const handleOperationChange = (value: string | null) => {
     setOperationFilter(value);
+    setPagination((prev) => ({ ...prev, current: 1 }));
+  };
+
+  const handleRecordFilterChange = (value: string | null) => {
+    setRecordFilter(value);
     setPagination((prev) => ({ ...prev, current: 1 }));
   };
 
@@ -168,8 +202,8 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
         fields && fields.length > 0 ? (
           <Space wrap size={4}>
             {fields.slice(0, 3).map((f) => (
-              <Tag key={f} style={{ margin: 0 }}>
-                {f}
+              <Tag key={f} style={{ margin: 0 }} title={fieldLabels[f] ? f : undefined}>
+                {fieldLabels[f] || f}
               </Tag>
             ))}
             {fields.length > 3 && <Tag>+{fields.length - 3} more</Tag>}
@@ -223,6 +257,8 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
         afterData={record.afterData}
         changedFields={record.changedFields}
         mode="unified"
+        fieldLabels={fieldLabels}
+        relatedValues={relatedValues}
       />
     </div>
   );
@@ -239,25 +275,22 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
         width={1000}
         open={visible}
         onClose={onClose}
-        extra={
-          <Space>
-            <Segmented
-              value={viewMode}
-              onChange={(v) => {
-                setViewMode(v as 'chronological' | 'byRecord');
-                setPagination((prev) => ({ ...prev, current: 1 }));
-              }}
-              options={[
-                { label: 'Chronological', value: 'chronological' },
-                { label: 'By Record', value: 'byRecord' },
-              ]}
-            />
-          </Space>
-        }
       >
         <div style={{ marginBottom: 16 }}>
           <Space wrap>
             <FilterOutlined style={{ color: '#999' }} />
+            <Select
+              placeholder="Record"
+              allowClear
+              showSearch
+              style={{ width: 200 }}
+              value={recordFilter}
+              onChange={handleRecordFilterChange}
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={availableRecords.map((r) => ({ label: r.name, value: r.id }))}
+            />
             <Select
               placeholder="Operation"
               allowClear
