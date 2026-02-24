@@ -53,11 +53,12 @@
 
 - [X] hide all t_
 
+- [X] CRUD on assets?
+- [X] query across assets properties
+- [X] search assets in a platform
+- [X] get rid of all default `spot_arm_v2`
 
-- [ ] CRUD on assets?
-- [ ] query across assets properties
-- [ ] search assets in a platform
-- [ ] get rid of all default `spot_arm_v2`
+- [ ] can we create a plugin to manage collection audits and rollbacks like our own CDC implementation? So in this example if I deleted Station 1, I should be able to see when and who and have the ability to roll it back. This would also need some sort of snapshot behavior. Any idea how to implement something like this?
 
 
 ## Deliverable

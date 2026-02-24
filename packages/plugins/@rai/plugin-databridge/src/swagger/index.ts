@@ -12,7 +12,7 @@ export default {
     title: 'NocoBase API - Databridge plugin',
   },
   tags: [
-    { name: 'databridge', description: 'Asset lookup operations' },
+    { name: 'databridge', description: 'Asset CRUD operations (get, search, create, update, delete)' },
     { name: 'databridge_platforms', description: 'Platform management' },
   ],
   paths: {
@@ -236,6 +236,337 @@ export default {
           },
           400: { description: 'Missing required parameters' },
           404: { description: 'Platform not found' },
+        },
+      },
+    },
+    '/databridge:update': {
+      post: {
+        tags: ['databridge'],
+        summary: 'Update assets using human-readable format',
+        description:
+          'Update one or more assets using the same format returned by the get endpoint. All operations are ACID - the entire batch succeeds or fails atomically.',
+        parameters: [
+          {
+            name: 'platform',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Platform slug',
+          },
+        ],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Object keyed by asset name, with same structure as get response',
+                additionalProperties: {
+                  type: 'object',
+                  required: ['collection', 'data'],
+                  properties: {
+                    platform: { type: 'string', description: 'Platform slug' },
+                    collection: { type: 'string', description: 'Internal collection name' },
+                    collection_title: { type: 'string', description: 'Human-readable collection title' },
+                    data: {
+                      type: 'object',
+                      required: ['id'],
+                      description:
+                        'Asset data with human-readable field names. Must include "id" for identifying the record.',
+                    },
+                  },
+                },
+              },
+              example: {
+                'Station 1': {
+                  platform: 'models',
+                  collection: 't_98x374ie2j7',
+                  collection_title: 'ArmStation',
+                  data: {
+                    id: 1,
+                    name: 'Station 1',
+                    left_gpu: 'WS63',
+                    right_gpu: 'WS64',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Assets updated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    updated: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: 'Names of updated assets',
+                    },
+                    count: { type: 'integer', description: 'Number of assets updated' },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Invalid request format or missing required parameters' },
+          404: { description: 'Platform or asset not found' },
+          422: {
+            description: 'Validation failed (relation not found, type mismatch, etc.)',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    error: { type: 'string' },
+                    details: {
+                      type: 'object',
+                      properties: {
+                        asset: { type: 'string', description: 'Asset that caused the error' },
+                        field: { type: 'string', description: 'Field that caused the error' },
+                        value: { type: 'string', description: 'Invalid value' },
+                        message: { type: 'string', description: 'Error message' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/databridge:create': {
+      post: {
+        tags: ['databridge'],
+        summary: 'Create new assets using human-readable format',
+        description:
+          'Create one or more assets in a collection. Supports batch creation. All operations are ACID - the entire batch succeeds or fails atomically.',
+        parameters: [
+          {
+            name: 'platform',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Platform slug',
+          },
+        ],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['collection', 'data'],
+                properties: {
+                  collection: {
+                    type: 'string',
+                    description: 'Collection name or title',
+                  },
+                  data: {
+                    oneOf: [
+                      {
+                        type: 'object',
+                        required: ['name'],
+                        description: 'Single asset to create',
+                      },
+                      {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          required: ['name'],
+                        },
+                        description: 'Array of assets to create',
+                      },
+                    ],
+                  },
+                },
+              },
+              examples: {
+                single: {
+                  summary: 'Create single asset',
+                  value: {
+                    collection: 'ArmStation',
+                    data: {
+                      name: 'Station 2',
+                      left_gpu: 'WS63',
+                      right_gpu: 'WS64',
+                      table_type: 'Table',
+                    },
+                  },
+                },
+                batch: {
+                  summary: 'Batch create assets',
+                  value: {
+                    collection: 'ArmStation',
+                    data: [
+                      { name: 'Station 2', left_gpu: 'WS63' },
+                      { name: 'Station 3', left_gpu: 'WS64' },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Assets created successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    created: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: 'Names of created assets',
+                    },
+                    count: { type: 'integer', description: 'Number of assets created' },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Invalid request format or missing required parameters' },
+          404: { description: 'Platform or collection not found' },
+          409: {
+            description: 'Duplicate name - asset already exists',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    error: { type: 'string' },
+                    details: {
+                      type: 'object',
+                      properties: {
+                        asset: { type: 'string', description: 'Duplicate asset name' },
+                        message: { type: 'string', description: 'Error message' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          422: {
+            description: 'Validation failed (relation not found, missing required field, etc.)',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    error: { type: 'string' },
+                    details: {
+                      type: 'object',
+                      properties: {
+                        asset: { type: 'string', description: 'Asset that caused the error' },
+                        field: { type: 'string', description: 'Field that caused the error' },
+                        value: { type: 'string', description: 'Invalid value' },
+                        message: { type: 'string', description: 'Error message' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/databridge:delete': {
+      post: {
+        tags: ['databridge'],
+        summary: 'Delete assets by name',
+        description:
+          'Delete one or more assets by name. Optionally filter by collection. All operations are ACID - the entire batch succeeds or fails atomically. Lookup table entries are automatically cleaned up via hooks.',
+        parameters: [
+          {
+            name: 'platform',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Platform slug',
+          },
+        ],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['assets'],
+                properties: {
+                  assets: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Asset names to delete',
+                  },
+                  collection: {
+                    type: 'string',
+                    description: 'Optional collection filter (name or title)',
+                  },
+                },
+              },
+              examples: {
+                simple: {
+                  summary: 'Delete multiple assets',
+                  value: {
+                    assets: ['Station 1', 'IRS026'],
+                  },
+                },
+                withCollection: {
+                  summary: 'Delete from specific collection',
+                  value: {
+                    collection: 'ArmStation',
+                    assets: ['Station 1'],
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Assets deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    deleted: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: 'Names of deleted assets',
+                    },
+                    count: { type: 'integer', description: 'Number of assets deleted' },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Invalid request format or missing required parameters' },
+          404: {
+            description: 'Platform, collection, or asset not found',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    error: { type: 'string' },
+                    details: {
+                      type: 'object',
+                      properties: {
+                        asset: { type: 'string', description: 'Asset that was not found' },
+                        message: { type: 'string', description: 'Error message' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },

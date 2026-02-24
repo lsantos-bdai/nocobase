@@ -5,6 +5,9 @@ import {
   search,
   list,
   indexAssets,
+  update,
+  create,
+  deleteAssets,
   createPlatform,
   syncPlatform,
   destroyPlatform,
@@ -86,6 +89,9 @@ export class PluginDatabridgeServer extends Plugin {
         list,
         index: indexAssets,
         listCollections,
+        update,
+        create,
+        delete: deleteAssets,
       },
     });
 
@@ -101,11 +107,21 @@ export class PluginDatabridgeServer extends Plugin {
     // ACL permissions - register snippet for role-based access
     this.app.acl.registerSnippet({
       name: 'pm.databridge',
-      actions: ['databridge_platforms:*', 'databridge:get', 'databridge:search', 'databridge:list', 'databridge:index', 'databridge:listCollections'],
+      actions: [
+        'databridge_platforms:*',
+        'databridge:get',
+        'databridge:search',
+        'databridge:list',
+        'databridge:index',
+        'databridge:listCollections',
+        'databridge:update',
+        'databridge:create',
+        'databridge:delete',
+      ],
     });
 
     // Allow logged-in users to use databridge actions
-    this.app.acl.allow('databridge', ['get', 'search', 'list', 'index', 'listCollections'], 'loggedIn');
+    this.app.acl.allow('databridge', ['get', 'search', 'list', 'index', 'listCollections', 'update', 'create', 'delete'], 'loggedIn');
 
     // Allow databridge_platforms actions for users with pm.databridge snippet
     this.app.acl.allow(
