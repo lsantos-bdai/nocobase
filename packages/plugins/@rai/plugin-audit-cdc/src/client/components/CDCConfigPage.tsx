@@ -14,6 +14,8 @@ interface CollectionConfig {
   enabled: boolean;
   retentionDays: number | null;
   maxVersions: number | null;
+  capturedRecords: Array<{ id: string; name: string }>;
+  capturedFields: string[];
   snapshotCount?: number;
 }
 
@@ -29,7 +31,10 @@ export const CDCConfigPage: React.FC = () => {
   const [stats, setStats] = useState<CDCStats>({ totalSnapshots: 0, totalCollections: 0, enabledCollections: 0 });
   const [updating, setUpdating] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [drawerCollection, setDrawerCollection] = useState<{ name: string; title: string } | null>(null);
+  const [drawerCollection, setDrawerCollection] = useState<{
+    name: string;
+    title: string;
+  } | null>(null);
   const [editingCollection, setEditingCollection] = useState<CollectionConfig | null>(null);
 
   const fetchConfigs = async () => {
@@ -191,7 +196,12 @@ export const CDCConfigPage: React.FC = () => {
 
   const enabledCollections = configs
     .filter((c) => c.enabled)
-    .map((c) => ({ collectionName: c.collectionName, collectionTitle: c.collectionTitle }));
+    .map((c) => ({
+      collectionName: c.collectionName,
+      collectionTitle: c.collectionTitle,
+      capturedRecords: c.capturedRecords || [],
+      capturedFields: c.capturedFields || [],
+    }));
 
   const tabItems = [
     {

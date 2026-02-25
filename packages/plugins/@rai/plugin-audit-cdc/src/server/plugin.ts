@@ -6,7 +6,7 @@ import {
   createAfterUpdateHook,
   createAfterDestroyHook,
 } from './hooks';
-import { history, snapshot, preview, rollback, configure, listConfig, listSnapshots } from './actions';
+import { history, snapshot, preview, rollback, configure, listConfig, listSnapshots, getFilterOptions } from './actions';
 
 export class PluginAuditCdcServer extends Plugin {
   private hooksRegistered = false;
@@ -32,6 +32,7 @@ export class PluginAuditCdcServer extends Plugin {
         configure,
         listConfig,
         listSnapshots,
+        getFilterOptions,
       },
     });
 
@@ -50,7 +51,7 @@ export class PluginAuditCdcServer extends Plugin {
     });
 
     // Allow read actions for logged-in users
-    this.app.acl.allow('cdc', ['history', 'snapshot', 'preview', 'listSnapshots'], 'loggedIn');
+    this.app.acl.allow('cdc', ['history', 'snapshot', 'preview', 'listSnapshots', 'getFilterOptions'], 'loggedIn');
 
     // Register GLOBAL hooks (not per-collection)
     // Hooks check shouldAuditCollection and isCollectionEnabled to decide whether to process

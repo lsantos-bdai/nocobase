@@ -203,4 +203,145 @@ export async function cleanupSnapshots(
       hooks: false,
     });
   }
+
+  // Prune filter metadata after cleanup
+  await pruneFilterMetadata(db, collectionName);
+}
+
+/**
+ * Update filter metadata (capturedRecords and capturedFields) when a snapshot is created.
+ * This maintains historical record of all IDs/names and fields that have appeared in snapshots.
+ */
+export async function updateFilterMetadata(
+  db: Database,
+  collectionName: string,
+  recordId: string,
+  recordName: string | null,
+  changedFields: string[],
+): Promise<void> {
+  try {
+    const configRepo = db.getRepository('cdc_config');
+    const config = await configRepo.findOne({
+      filter: { collectionName },
+    });
+
+    if (!config) {
+      return;
+    }
+
+    const capturedRecords = (config.get('capturedRecords') as Array<{ id: string; name: string }>) || [];
+    const capturedFields = (config.get('capturedFields') as string[]) || [];
+
+    let recordsUpdated = false;
+    let fieldsUpdated = false;
+
+    // Add {id, name} pair if not already present (match on both id AND name)
+    const displayName = recordName || recordId;
+    const existingRecord = capturedRecords.find((r) => r.id === recordId && r.name === displayName);
+    if (!existingRecord) {
+      capturedRecords.push({ id: recordId, name: displayName });
+      recordsUpdated = true;
+    }
+
+    // Add any new field names
+    const fieldsSet = new Set(capturedFields);
+    for (const field of changedFields) {
+      if (!fieldsSet.has(field)) {
+        fieldsSet.add(field);
+        fieldsUpdated = true;
+      }
+    }
+
+    // Only update if something changed
+    if (recordsUpdated || fieldsUpdated) {
+      const updates: Record<string, unknown> = {};
+      if (recordsUpdated) {
+        updates.capturedRecords = capturedRecords;
+      }
+      if (fieldsUpdated) {
+        updates.capturedFields = Array.from(fieldsSet);
+      }
+
+      await configRepo.update({
+        filterByTk: collectionName,
+        values: updates,
+      });
+    }
+  } catch (err) {
+    // Silently ignore errors to not disrupt snapshot creation
+    console.warn(`[CDC] Failed to update filter metadata for ${collectionName}:`, err);
+  }
+}
+
+/**
+ * Prune filter metadata by removing entries for records/fields that no longer exist in snapshots.
+ * Called after snapshot cleanup (retention/maxVersions).
+ */
+export async function pruneFilterMetadata(
+  db: Database,
+  collectionName: string,
+): Promise<void> {
+  try {
+    const configRepo = db.getRepository('cdc_config');
+    const snapshotRepo = db.getRepository('cdc_snapshots');
+
+    const config = await configRepo.findOne({
+      filter: { collectionName },
+    });
+
+    if (!config) {
+      return;
+    }
+
+    const capturedRecords = (config.get('capturedRecords') as Array<{ id: string; name: string }>) || [];
+    const capturedFields = (config.get('capturedFields') as string[]) || [];
+
+    if (capturedRecords.length === 0 && capturedFields.length === 0) {
+      return;
+    }
+
+    // Get distinct recordIds still in snapshots
+    const remainingSnapshots = await snapshotRepo.find({
+      filter: { collectionName },
+      fields: ['recordId', 'changedFields'],
+    });
+
+    const remainingRecordIds = new Set<string>();
+    const remainingFields = new Set<string>();
+
+    for (const snapshot of remainingSnapshots) {
+      remainingRecordIds.add(snapshot.get('recordId') as string);
+      const fields = snapshot.get('changedFields') as string[];
+      if (fields) {
+        for (const field of fields) {
+          remainingFields.add(field);
+        }
+      }
+    }
+
+    // Filter capturedRecords to only those with IDs still in snapshots
+    const prunedRecords = capturedRecords.filter((r) => remainingRecordIds.has(r.id));
+    const prunedFields = capturedFields.filter((f) => remainingFields.has(f));
+
+    const recordsChanged = prunedRecords.length !== capturedRecords.length;
+    const fieldsChanged = prunedFields.length !== capturedFields.length;
+
+    if (recordsChanged || fieldsChanged) {
+      const updates: Record<string, unknown> = {};
+      if (recordsChanged) {
+        updates.capturedRecords = prunedRecords;
+      }
+      if (fieldsChanged) {
+        updates.capturedFields = prunedFields;
+      }
+
+      await configRepo.update({
+        filterByTk: collectionName,
+        values: updates,
+      });
+    }
+  } catch (err) {
+    // Silently ignore errors to not disrupt cleanup
+    console.warn(`[CDC] Failed to prune filter metadata for ${collectionName}:`, err);
+  }
 }

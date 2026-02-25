@@ -22,6 +22,11 @@ interface Snapshot {
   version: number;
 }
 
+interface CapturedRecord {
+  id: string;
+  name: string;
+}
+
 interface SnapshotDrawerProps {
   visible: boolean;
   collectionName: string;
@@ -37,8 +42,10 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
 }) => {
   const api = useAPIClient();
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [capturedRecords, setCapturedRecords] = useState<CapturedRecord[]>([]);
+  const [capturedFields, setCapturedFields] = useState<string[]>([]);
   const [recordFilter, setRecordFilter] = useState<string | null>(null);
-  const [availableRecords, setAvailableRecords] = useState<Array<{ id: string; name: string }>>([]);
+  const [changedFieldFilter, setChangedFieldFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
   const [operationFilter, setOperationFilter] = useState<string | null>(null);
@@ -48,10 +55,27 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
   const [fieldLabels, setFieldLabels] = useState<Record<string, string>>({});
   const [relatedValues, setRelatedValues] = useState<Record<string, Record<string, string>>>({});
 
+  const fetchFilterOptions = async () => {
+    try {
+      const response = await api.request({
+        url: 'cdc:getFilterOptions',
+        method: 'GET',
+        params: { collection: collectionName },
+      });
+      if (response?.data?.data) {
+        setCapturedRecords(response.data.data.capturedRecords || []);
+        setCapturedFields(response.data.data.capturedFields || []);
+      }
+    } catch (err) {
+      // Silently fail - filter options are not critical
+      console.warn('Failed to fetch filter options:', err);
+    }
+  };
+
   useEffect(() => {
     if (visible && collectionName) {
+      fetchFilterOptions();
       fetchSnapshots();
-      fetchAvailableRecords();
     }
   }, [visible, collectionName]);
 
@@ -59,29 +83,7 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
     if (visible && collectionName) {
       fetchSnapshots();
     }
-  }, [pagination.current, pagination.pageSize, operationFilter, dateRange, recordFilter]);
-
-  const fetchAvailableRecords = async () => {
-    try {
-      const response = await api.request({
-        url: `${collectionName}:list`,
-        method: 'GET',
-        params: {
-          pageSize: 1000,
-        },
-      });
-
-      if (response?.data?.data) {
-        const records = response.data.data.map((record: Record<string, unknown>) => ({
-          id: String(record.id),
-          name: String(record.name || record.title || record.label || record.nickname || record.id || 'Unknown'),
-        }));
-        setAvailableRecords(records);
-      }
-    } catch (err: any) {
-      console.warn('Failed to fetch available records:', err.message);
-    }
-  };
+  }, [pagination.current, pagination.pageSize, operationFilter, dateRange, recordFilter, changedFieldFilter]);
 
   const fetchSnapshots = async () => {
     setLoading(true);
@@ -103,6 +105,10 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
 
       if (recordFilter) {
         params.recordId = recordFilter;
+      }
+
+      if (changedFieldFilter) {
+        params.changedField = changedFieldFilter;
       }
 
       const response = await api.request({
@@ -156,6 +162,11 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
 
   const handleRecordFilterChange = (value: string | null) => {
     setRecordFilter(value);
+    setPagination((prev) => ({ ...prev, current: 1 }));
+  };
+
+  const handleChangedFieldFilterChange = (value: string | null) => {
+    setChangedFieldFilter(value);
     setPagination((prev) => ({ ...prev, current: 1 }));
   };
 
@@ -280,16 +291,34 @@ export const SnapshotDrawer: React.FC<SnapshotDrawerProps> = ({
           <Space wrap>
             <FilterOutlined style={{ color: '#999' }} />
             <Select
-              placeholder="Record"
+              placeholder="Asset"
               allowClear
               showSearch
-              style={{ width: 200 }}
+              style={{ width: 240 }}
               value={recordFilter}
               onChange={handleRecordFilterChange}
               filterOption={(input, option) =>
                 (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
               }
-              options={availableRecords.map((r) => ({ label: r.name, value: r.id }))}
+              options={capturedRecords.map((r) => ({
+                label: `${r.name} (id:${r.id})`,
+                value: r.id,
+              }))}
+            />
+            <Select
+              placeholder="Changed Field"
+              allowClear
+              showSearch
+              style={{ width: 160 }}
+              value={changedFieldFilter}
+              onChange={handleChangedFieldFilterChange}
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={capturedFields.map((f) => ({
+                label: fieldLabels[f] || f,
+                value: f,
+              }))}
             />
             <Select
               placeholder="Operation"

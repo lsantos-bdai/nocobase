@@ -1,5 +1,6 @@
 import { Context, Next } from '@nocobase/actions';
 import { buildCascadePreview, PreviewItem } from '../utils/cascade-helpers';
+import { validateRollbackSchema } from '../utils/schema-validator';
 
 /**
  * POST /api/cdc:preview
@@ -80,6 +81,9 @@ export async function preview(ctx: Context, next: Next) {
     rollbackData = targetSnapshot.get('beforeData') as Record<string, unknown>;
   }
 
+  // Validate schema for the main rollback item
+  const mainSchemaValidation = validateRollbackSchema(ctx.db, collectionName, rollbackData);
+
   const previewItems: PreviewItem[] = [
     {
       collection: collectionName,
@@ -88,6 +92,7 @@ export async function preview(ctx: Context, next: Next) {
       action,
       currentData: currentRecord ? currentRecord.get({ plain: true }) : null,
       rollbackData,
+      schemaErrors: mainSchemaValidation.errors.length > 0 ? mainSchemaValidation.errors : undefined,
     },
   ];
 
@@ -103,9 +108,15 @@ export async function preview(ctx: Context, next: Next) {
     previewItems.push(...cascadeItems);
   }
 
+  // Check if any items have schema errors
+  const hasSchemaErrors = previewItems.some(
+    (item) => item.schemaErrors && item.schemaErrors.length > 0,
+  );
+
   ctx.body = {
     preview: previewItems,
     affectedRecords: previewItems.length,
+    hasSchemaErrors,
     targetSnapshot: {
       id: targetSnapshot.get('id'),
       version: targetSnapshot.get('version'),

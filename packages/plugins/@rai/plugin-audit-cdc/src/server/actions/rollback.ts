@@ -1,5 +1,6 @@
 import { Context, Next } from '@nocobase/actions';
 import { buildCascadePreview, PreviewItem } from '../utils/cascade-helpers';
+import { SchemaValidationError, validateRollbackSchema } from '../utils/schema-validator';
 
 /**
  * POST /api/cdc:rollback
@@ -91,6 +92,21 @@ export async function rollback(ctx: Context, next: Next) {
       rollbackData,
     );
     itemsToRollback.push(...cascadeItems);
+  }
+
+  // Validate schema for all items before execution (defense in depth)
+  const allSchemaErrors: SchemaValidationError[] = [];
+  for (const item of itemsToRollback) {
+    const validation = validateRollbackSchema(ctx.db, item.collection, item.rollbackData);
+    if (!validation.valid) {
+      allSchemaErrors.push(...validation.errors);
+    }
+  }
+
+  if (allSchemaErrors.length > 0) {
+    ctx.throw(400, 'Schema validation failed: snapshot contains fields that no longer exist in current schema', {
+      errors: allSchemaErrors,
+    });
   }
 
   // Execute rollback in transaction

@@ -44,7 +44,7 @@ export default defineCollection({
       // Full record AFTER (null for destroy)
     },
     {
-      type: 'json',
+      type: 'jsonb',
       name: 'changedFields',
       // Array of field names that changed
       defaultValue: [],

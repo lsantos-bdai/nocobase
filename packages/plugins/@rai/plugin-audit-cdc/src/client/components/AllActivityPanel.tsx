@@ -27,6 +27,8 @@ interface Snapshot {
 interface EnabledCollection {
   collectionName: string;
   collectionTitle: string;
+  capturedRecords: Array<{ id: string; name: string }>;
+  capturedFields: string[];
 }
 
 interface AllActivityPanelProps {
@@ -44,7 +46,10 @@ export const AllActivityPanel: React.FC<AllActivityPanelProps> = ({ enabledColle
   const [expandedRows, setExpandedRows] = useState<React.Key[]>([]);
   const [fieldLabels, setFieldLabels] = useState<Record<string, Record<string, string>>>({});
   const [relatedValues, setRelatedValues] = useState<Record<string, Record<string, Record<string, string>>>>({});
-  const [drawerCollection, setDrawerCollection] = useState<{ name: string; title: string } | null>(null);
+  const [drawerCollection, setDrawerCollection] = useState<{
+    name: string;
+    title: string;
+  } | null>(null);
 
   useEffect(() => {
     fetchSnapshots();
@@ -154,20 +159,22 @@ export const AllActivityPanel: React.FC<AllActivityPanelProps> = ({ enabledColle
       dataIndex: 'collectionTitle',
       key: 'collectionTitle',
       width: 150,
-      render: (title: string, record: Snapshot) => (
-        <Button
-          type="link"
-          style={{ padding: 0 }}
-          onClick={() =>
-            setDrawerCollection({
-              name: record.collectionName,
-              title: record.collectionTitle,
-            })
-          }
-        >
-          {title}
-        </Button>
-      ),
+      render: (title: string, record: Snapshot) => {
+        return (
+          <Button
+            type="link"
+            style={{ padding: 0 }}
+            onClick={() =>
+              setDrawerCollection({
+                name: record.collectionName,
+                title: record.collectionTitle,
+              })
+            }
+          >
+            {title}
+          </Button>
+        );
+      },
     },
     {
       title: 'Record',

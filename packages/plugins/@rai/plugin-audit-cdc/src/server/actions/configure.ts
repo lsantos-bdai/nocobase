@@ -97,6 +97,8 @@ export async function listConfig(ctx: Context, next: Next) {
       enabled: c.get('enabled'),
       retentionDays: c.get('retentionDays'),
       maxVersions: c.get('maxVersions'),
+      capturedRecords: c.get('capturedRecords') || [],
+      capturedFields: c.get('capturedFields') || [],
     });
   }
 
@@ -115,6 +117,8 @@ export async function listConfig(ctx: Context, next: Next) {
     enabled: boolean;
     retentionDays: number | null;
     maxVersions: number | null;
+    capturedRecords: Array<{ id: string; name: string }>;
+    capturedFields: string[];
   }> = [];
 
   for (const coll of allCollections) {
@@ -141,6 +145,8 @@ export async function listConfig(ctx: Context, next: Next) {
         enabled: false,
         retentionDays: null,
         maxVersions: null,
+        capturedRecords: [],
+        capturedFields: [],
       });
     }
   }
@@ -186,6 +192,7 @@ export async function listSnapshots(ctx: Context, next: Next) {
     startDate,
     endDate,
     recordId,
+    changedField,
   } = ctx.action.params;
 
   const snapshotRepo = ctx.db.getRepository('cdc_snapshots');
@@ -214,6 +221,11 @@ export async function listSnapshots(ctx: Context, next: Next) {
 
   if (recordId) {
     filter.recordId = recordId;
+  }
+
+  if (changedField) {
+    // Filter snapshots where changedFields JSON array contains the specified field
+    filter.changedFields = { $anyOf: [changedField] };
   }
 
   // Get total count
@@ -429,4 +441,37 @@ async function resolveFieldMetadata(
   }
 
   return { fieldLabels, relatedValues };
+}
+
+/**
+ * GET /api/cdc:getFilterOptions
+ * Query params:
+ *   - collection: Collection name (required)
+ * Returns the capturedRecords and capturedFields for the specified collection
+ */
+export async function getFilterOptions(ctx: Context, next: Next) {
+  const { collection } = ctx.action.params;
+
+  if (!collection) {
+    ctx.throw(400, 'collection parameter is required');
+  }
+
+  const configRepo = ctx.db.getRepository('cdc_config');
+  const config = await configRepo.findOne({
+    filter: { collectionName: collection },
+  });
+
+  if (!config) {
+    ctx.body = {
+      capturedRecords: [],
+      capturedFields: [],
+    };
+  } else {
+    ctx.body = {
+      capturedRecords: config.get('capturedRecords') || [],
+      capturedFields: config.get('capturedFields') || [],
+    };
+  }
+
+  await next();
 }

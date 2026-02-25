@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Switch, Button, Alert, Spin, Typography, Tag, Divider, Space, message } from 'antd';
-import { ExclamationCircleOutlined, RollbackOutlined, WarningOutlined } from '@ant-design/icons';
+import { ExclamationCircleOutlined, RollbackOutlined, WarningOutlined, StopOutlined } from '@ant-design/icons';
 import { useAPIClient } from '@nocobase/client';
 import { DiffViewer } from './DiffViewer';
 
@@ -19,6 +19,14 @@ interface Snapshot {
   version: number;
 }
 
+interface SchemaValidationError {
+  collection: string;
+  field: string;
+  errorType: 'missing_field';
+  snapshotValue: unknown;
+  suggestion?: string;
+}
+
 interface PreviewItem {
   collection: string;
   recordId: string;
@@ -26,6 +34,7 @@ interface PreviewItem {
   action: 'restore' | 'update' | 'delete';
   currentData: Record<string, unknown> | null;
   rollbackData: Record<string, unknown> | null;
+  schemaErrors?: SchemaValidationError[];
 }
 
 interface RollbackModalProps {
@@ -46,6 +55,7 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
   const api = useAPIClient();
   const [cascade, setCascade] = useState(false);
   const [preview, setPreview] = useState<PreviewItem[] | null>(null);
+  const [hasSchemaErrors, setHasSchemaErrors] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [executing, setExecuting] = useState(false);
 
@@ -55,6 +65,7 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
     } else {
       setPreview(null);
       setCascade(false);
+      setHasSchemaErrors(false);
     }
   }, [visible, snapshot, cascade]);
 
@@ -72,8 +83,11 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
         },
       });
 
-      if (response?.data?.preview) {
-        setPreview(response.data.preview);
+      // NocoBase wraps response - check both formats
+      const data = response?.data?.data || response?.data;
+      if (data?.preview) {
+        setPreview(data.preview);
+        setHasSchemaErrors(data.hasSchemaErrors || false);
       }
     } catch (err: any) {
       message.error(`Failed to load preview: ${err.message || 'Unknown error'}`);
@@ -162,7 +176,7 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
           icon={<RollbackOutlined />}
           onClick={handleRollback}
           loading={executing}
-          disabled={loadingPreview || executing}
+          disabled={loadingPreview || executing || hasSchemaErrors}
         >
           Execute Rollback
         </Button>,
@@ -209,6 +223,40 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
         </Space>
       </div>
 
+      {hasSchemaErrors && preview && (
+        <div style={{ marginBottom: 16 }}>
+          <Alert
+            message="Schema Incompatibility - Rollback Blocked"
+            description={
+              <div>
+                <p style={{ marginBottom: 8 }}>
+                  Cannot rollback because snapshot data contains fields that no longer exist in the current schema:
+                </p>
+                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                  {preview
+                    .filter((item) => item.schemaErrors && item.schemaErrors.length > 0)
+                    .flatMap((item) =>
+                      item.schemaErrors!.map((err, idx) => (
+                        <li key={`${item.collection}-${item.recordId}-${err.field}-${idx}`}>
+                          <Text code>{item.collection}</Text>: <Text code>{err.field}</Text>
+                          {err.suggestion && (
+                            <Text type="secondary" style={{ marginLeft: 8 }}>
+                              ({err.suggestion})
+                            </Text>
+                          )}
+                        </li>
+                      )),
+                    )}
+                </ul>
+              </div>
+            }
+            type="error"
+            icon={<StopOutlined />}
+            showIcon
+          />
+        </div>
+      )}
+
       <Divider />
 
       <Title level={5}>Changes Preview</Title>
@@ -237,6 +285,11 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
                   <Text strong>{item.recordName}</Text>
                   <Text type="secondary">({item.collection})</Text>
                   {getActionTag(item.action)}
+                  {item.schemaErrors && item.schemaErrors.length > 0 && (
+                    <Tag color="red" icon={<StopOutlined />}>
+                      Schema Error
+                    </Tag>
+                  )}
                 </Space>
               </div>
               {item.action !== 'delete' && (
@@ -248,6 +301,27 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
               )}
               {item.action === 'delete' && (
                 <Text type="secondary">This record will be deleted</Text>
+              )}
+              {item.schemaErrors && item.schemaErrors.length > 0 && (
+                <Alert
+                  type="error"
+                  style={{ marginTop: 8 }}
+                  message="Missing fields in current schema"
+                  description={
+                    <ul style={{ margin: 0, paddingLeft: 20, marginTop: 4 }}>
+                      {item.schemaErrors.map((err, idx) => (
+                        <li key={`${err.field}-${idx}`}>
+                          <Text code>{err.field}</Text>
+                          {err.suggestion && (
+                            <Text type="secondary" style={{ marginLeft: 8 }}>
+                              - {err.suggestion}
+                            </Text>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  }
+                />
               )}
             </div>
           ))}

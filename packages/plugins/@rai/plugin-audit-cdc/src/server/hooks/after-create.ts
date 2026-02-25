@@ -6,6 +6,7 @@ import {
   getNextVersion,
   shouldAuditCollection,
   cleanupSnapshots,
+  updateFilterMetadata,
 } from '../utils/snapshot-helpers';
 
 export interface HookOptions {
@@ -61,6 +62,7 @@ export function createAfterCreateHook(db: Database, logger?: Logger) {
       try {
         const afterData = getPlainData(model);
         const version = await getNextVersion(db, collectionName, recordId);
+        const changedFields = Object.keys(afterData).filter((k) => !k.startsWith('_'));
 
         // Get user ID from context if available
         const userId = options.context?.state?.currentUser?.id ?? null;
@@ -74,7 +76,7 @@ export function createAfterCreateHook(db: Database, logger?: Logger) {
             operation: 'create',
             beforeData: null,
             afterData,
-            changedFields: Object.keys(afterData).filter((k) => !k.startsWith('_')),
+            changedFields,
             userId,
             createdAt: now,
             updatedAt: now,
@@ -82,6 +84,10 @@ export function createAfterCreateHook(db: Database, logger?: Logger) {
           },
           hooks: false, // Prevent CDC hooks from firing on snapshot creation
         });
+
+        // Update filter metadata (capturedRecords and capturedFields)
+        const recordName = String(afterData.name || afterData.title || afterData.label || afterData.nickname || recordId);
+        await updateFilterMetadata(db, collectionName, recordId, recordName, changedFields);
 
         // Cleanup old snapshots based on retention/maxVersions config
         await cleanupSnapshots(db, collectionName, recordId);

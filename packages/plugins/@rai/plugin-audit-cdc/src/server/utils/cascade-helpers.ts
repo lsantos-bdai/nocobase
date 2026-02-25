@@ -1,4 +1,5 @@
 import { Database } from '@nocobase/database';
+import { SchemaValidationError, validateRollbackSchema } from './schema-validator';
 
 export interface PreviewItem {
   collection: string;
@@ -7,6 +8,7 @@ export interface PreviewItem {
   action: 'restore' | 'update' | 'delete';
   currentData: Record<string, unknown> | null;
   rollbackData: Record<string, unknown> | null;
+  schemaErrors?: SchemaValidationError[];
 }
 
 const MAX_CASCADE_DEPTH = 3;
@@ -111,6 +113,13 @@ export async function buildCascadePreview(
         }
       }
 
+      // Validate schema for the cascade item
+      const schemaValidation = validateRollbackSchema(
+        db,
+        targetCollection,
+        relatedRollbackData as Record<string, unknown>,
+      );
+
       previewItems.push({
         collection: targetCollection,
         recordId: String(relatedId),
@@ -118,6 +127,7 @@ export async function buildCascadePreview(
         action,
         currentData: currentRelatedRecord ? currentRelatedRecord.get({ plain: true }) : null,
         rollbackData: relatedRollbackData as Record<string, unknown>,
+        schemaErrors: schemaValidation.errors.length > 0 ? schemaValidation.errors : undefined,
       });
 
       // Recursively process relations (if cascade continues)
