@@ -27,8 +27,33 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const sortedKeys = Array.from(allKeys).sort();
 
   const formatValue = (value: unknown, fieldName?: string): string => {
-    if (value === null) return 'null';
-    if (value === undefined) return 'undefined';
+    if (value === null) return '-';
+    if (value === undefined) return '-';
+
+    // Handle arrays (hasMany/belongsToMany relations)
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '-';
+      const resolved = value.map((item) => {
+        const id = typeof item === 'object' && item !== null ? (item as any).id : item;
+        // Check if we have a display value for this ID
+        if (fieldName && relatedValues[fieldName] && id != null) {
+          const displayValue = relatedValues[fieldName][String(id)];
+          if (displayValue) {
+            return displayValue;
+          }
+        }
+        // Fall back to name/title/label property if available
+        if (typeof item === 'object' && item !== null) {
+          const obj = item as Record<string, unknown>;
+          const displayName = obj.name || obj.title || obj.label || obj.nickname;
+          if (displayName) {
+            return String(displayName);
+          }
+        }
+        return String(id ?? item);
+      });
+      return resolved.join(', ');
+    }
 
     // Check if we have a display value for this field (related record)
     if (fieldName && relatedValues[fieldName] && value !== null && value !== undefined) {
@@ -38,9 +63,17 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       }
     }
 
-    if (typeof value === 'object') {
+    // Handle single object (belongsTo/hasOne relations) - extract display name
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const obj = value as Record<string, unknown>;
+      // Try common display fields
+      const displayName = obj.name || obj.title || obj.label || obj.nickname;
+      if (displayName) {
+        return String(displayName);
+      }
+      // Fallback to JSON for objects without a name field
       try {
-        return JSON.stringify(value, null, 2);
+        return JSON.stringify(value);
       } catch {
         return String(value);
       }

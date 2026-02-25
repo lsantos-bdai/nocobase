@@ -1,5 +1,10 @@
 import { Model, Database } from '@nocobase/database';
-import { isCollectionEnabled, getPrimaryKeyValue, shouldAuditCollection } from '../utils/snapshot-helpers';
+import {
+  isCollectionEnabled,
+  getPrimaryKeyValue,
+  shouldAuditCollection,
+  getAssociationFieldNames,
+} from '../utils/snapshot-helpers';
 
 export interface HookOptions {
   transaction?: any;
@@ -59,9 +64,12 @@ export function createBeforeUpdateHook(db: Database, logger?: Logger) {
 
     try {
       const repo = db.getRepository(collectionName);
+      const associations = getAssociationFieldNames(db, collectionName);
+      console.log('[CDC DEBUG] beforeUpdate: fetching with appends=', associations);
       const currentRecord = await repo.findOne({
         filterByTk: recordId,
         transaction: options.transaction,
+        appends: associations.length > 0 ? associations : undefined, // Load association data
       });
 
       if (currentRecord) {
@@ -73,6 +81,7 @@ export function createBeforeUpdateHook(db: Database, logger?: Logger) {
       }
     } catch (err) {
       // Log but don't fail the operation
+      console.error(`[CDC DEBUG] beforeUpdate error for ${collectionName}:`, err);
       if (logger) {
         logger.error(`[CDC] beforeUpdate error for ${collectionName}:`, err);
       }

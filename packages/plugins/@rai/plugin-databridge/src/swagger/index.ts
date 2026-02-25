@@ -12,7 +12,7 @@ export default {
     title: 'NocoBase API - Databridge plugin',
   },
   tags: [
-    { name: 'databridge', description: 'Asset CRUD operations (get, search, create, update, delete)' },
+    { name: 'databridge', description: 'Asset CRUD operations (get, search, bulkCreate, bulkUpdate, bulkDelete)' },
     { name: 'databridge_platforms', description: 'Platform management' },
   ],
   paths: {
@@ -239,10 +239,10 @@ export default {
         },
       },
     },
-    '/databridge:update': {
+    '/databridge:bulkUpdate': {
       post: {
         tags: ['databridge'],
-        summary: 'Update assets using human-readable format',
+        summary: 'Bulk update assets using human-readable format',
         description:
           'Update one or more assets using the same format returned by the get endpoint. All operations are ACID - the entire batch succeeds or fails atomically.',
         parameters: [
@@ -338,10 +338,10 @@ export default {
         },
       },
     },
-    '/databridge:create': {
+    '/databridge:bulkCreate': {
       post: {
         tags: ['databridge'],
-        summary: 'Create new assets using human-readable format',
+        summary: 'Bulk create new assets using human-readable format',
         description:
           'Create one or more assets in a collection. Supports batch creation. All operations are ACID - the entire batch succeeds or fails atomically.',
         parameters: [
@@ -476,10 +476,10 @@ export default {
         },
       },
     },
-    '/databridge:delete': {
+    '/databridge:bulkDelete': {
       post: {
         tags: ['databridge'],
-        summary: 'Delete assets by name',
+        summary: 'Bulk delete assets by name',
         description:
           'Delete one or more assets by name. Optionally filter by collection. All operations are ACID - the entire batch succeeds or fails atomically. Lookup table entries are automatically cleaned up via hooks.',
         parameters: [

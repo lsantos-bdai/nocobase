@@ -89,9 +89,9 @@ export class PluginDatabridgeServer extends Plugin {
         list,
         index: indexAssets,
         listCollections,
-        update,
-        create,
-        delete: deleteAssets,
+        bulkUpdate: update,
+        bulkCreate: create,
+        bulkDelete: deleteAssets,
       },
     });
 
@@ -114,14 +114,14 @@ export class PluginDatabridgeServer extends Plugin {
         'databridge:list',
         'databridge:index',
         'databridge:listCollections',
-        'databridge:update',
-        'databridge:create',
-        'databridge:delete',
+        'databridge:bulkUpdate',
+        'databridge:bulkCreate',
+        'databridge:bulkDelete',
       ],
     });
 
     // Allow logged-in users to use databridge actions
-    this.app.acl.allow('databridge', ['get', 'search', 'list', 'index', 'listCollections', 'update', 'create', 'delete'], 'loggedIn');
+    this.app.acl.allow('databridge', ['get', 'search', 'list', 'index', 'listCollections', 'bulkUpdate', 'bulkCreate', 'bulkDelete'], 'loggedIn');
 
     // Allow databridge_platforms actions for users with pm.databridge snippet
     this.app.acl.allow(

@@ -58,6 +58,8 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
   const [hasSchemaErrors, setHasSchemaErrors] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const [fieldLabels, setFieldLabels] = useState<Record<string, string>>({});
+  const [relatedValues, setRelatedValues] = useState<Record<string, Record<string, string>>>({});
 
   useEffect(() => {
     if (visible && snapshot) {
@@ -66,6 +68,8 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
       setPreview(null);
       setCascade(false);
       setHasSchemaErrors(false);
+      setFieldLabels({});
+      setRelatedValues({});
     }
   }, [visible, snapshot, cascade]);
 
@@ -88,6 +92,8 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
       if (data?.preview) {
         setPreview(data.preview);
         setHasSchemaErrors(data.hasSchemaErrors || false);
+        if (data.fieldLabels) setFieldLabels(data.fieldLabels);
+        if (data.relatedValues) setRelatedValues(data.relatedValues);
       }
     } catch (err: any) {
       message.error(`Failed to load preview: ${err.message || 'Unknown error'}`);
@@ -297,6 +303,8 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
                   beforeData={item.currentData}
                   afterData={item.rollbackData}
                   mode="unified"
+                  fieldLabels={fieldLabels}
+                  relatedValues={relatedValues}
                 />
               )}
               {item.action === 'delete' && (

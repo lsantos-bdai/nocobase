@@ -16,6 +16,15 @@ export const EXCLUDED_COLLECTIONS = new Set([
 // Prefixes that indicate system collections
 export const EXCLUDED_PREFIXES = ['_', 'ui', 'auth'];
 
+// System-managed fields that should not trigger snapshots
+const SYSTEM_FIELDS = new Set([
+  'createdAt',
+  'updatedAt',
+  'deletedAt',
+  'createdById',
+  'updatedById',
+]);
+
 export function shouldAuditCollection(collectionName: string): boolean {
   if (EXCLUDED_COLLECTIONS.has(collectionName)) {
     return false;
@@ -28,6 +37,31 @@ export function shouldAuditCollection(collectionName: string): boolean {
   }
 
   return true;
+}
+
+/**
+ * Get all association field names for a collection (for use with appends)
+ */
+export function getAssociationFieldNames(db: Database, collectionName: string): string[] {
+  const collection = db.getCollection(collectionName);
+  if (!collection) {
+    console.log('[CDC DEBUG] getAssociationFieldNames: no collection found for', collectionName);
+    return [];
+  }
+
+  const associations: string[] = [];
+  try {
+    for (const [name, field] of collection.fields) {
+      if (['belongsTo', 'hasOne', 'hasMany', 'belongsToMany'].includes(field.type)) {
+        associations.push(name);
+      }
+    }
+  } catch (err) {
+    console.log('[CDC DEBUG] getAssociationFieldNames error iterating fields:', err);
+    return [];
+  }
+  console.log('[CDC DEBUG] getAssociationFieldNames for', collectionName, ':', associations);
+  return associations;
 }
 
 export async function isCollectionEnabled(
@@ -61,10 +95,12 @@ export function getChangedFields(
   afterData: Record<string, unknown> | null,
 ): string[] {
   if (!beforeData || !afterData) {
+    console.log('[CDC DEBUG] getChangedFields: missing beforeData or afterData');
     return [];
   }
 
   const changedFields: string[] = [];
+  const skippedSystemFields: string[] = [];
   const allKeys = new Set([...Object.keys(beforeData), ...Object.keys(afterData)]);
 
   for (const key of allKeys) {
@@ -76,12 +112,21 @@ export function getChangedFields(
       continue;
     }
 
+    // Skip system-managed fields (createdAt, updatedAt, etc.)
+    if (SYSTEM_FIELDS.has(key)) {
+      if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+        skippedSystemFields.push(key);
+      }
+      continue;
+    }
+
     // Compare values (simple JSON comparison)
     if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
       changedFields.push(key);
     }
   }
 
+  console.log('[CDC DEBUG] getChangedFields: changed=', changedFields, 'skippedSystem=', skippedSystemFields);
   return changedFields;
 }
 

@@ -29,12 +29,10 @@
 
 - [X] hide all t_
 
-- [ ] preview block not showing up properly
-- [ ] filter by changed fields
+- [X] preview block not showing up properly
+- [X] filter by changed fields
 - [-] CRUD on assets?
   - [ ] test bad update
-    - [ ] false relation
-    - [ ] mismatch type
   - [ ] test single update
     - [ ] test rollback
   - [ ] test bulk update

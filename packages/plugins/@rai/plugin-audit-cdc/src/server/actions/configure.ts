@@ -335,7 +335,7 @@ function getRecordName(data: Record<string, unknown> | null): string {
  * - fieldLabels: Maps field names to their human-readable titles
  * - relatedValues: For association fields, maps IDs to display values
  */
-async function resolveFieldMetadata(
+export async function resolveFieldMetadata(
   db: any,
   collectionName: string,
   snapshots: any[]
@@ -359,6 +359,7 @@ async function resolveFieldMetadata(
       name: string;
       targetCollection: string;
       foreignKey: string;
+      isArray: boolean;
     }> = [];
 
     for (const [name, field] of fields) {
@@ -370,12 +371,13 @@ async function resolveFieldMetadata(
         fieldLabels[name] = label;
       }
 
-      // Identify association fields (belongsTo, hasOne)
-      if (['belongsTo', 'hasOne'].includes(field.type)) {
+      // Identify association fields (belongsTo, hasOne, hasMany, belongsToMany)
+      if (['belongsTo', 'hasOne', 'hasMany', 'belongsToMany'].includes(field.type)) {
         const targetCollection = options.target;
         const foreignKey = options.foreignKey || `${name}Id`;
+        const isArray = ['hasMany', 'belongsToMany'].includes(field.type);
         if (targetCollection) {
-          associationFields.push({ name, targetCollection, foreignKey });
+          associationFields.push({ name, targetCollection, foreignKey, isArray });
           // Also label the foreign key field
           if (label) {
             fieldLabels[foreignKey] = label;
@@ -392,15 +394,30 @@ async function resolveFieldMetadata(
         const beforeData = snapshot.get('beforeData') as Record<string, unknown> | null;
         const afterData = snapshot.get('afterData') as Record<string, unknown> | null;
 
-        // Check both the association field name and the foreign key
-        for (const key of [assoc.name, assoc.foreignKey]) {
-          const beforeId = beforeData?.[key];
-          const afterId = afterData?.[key];
-          if (beforeId !== null && beforeId !== undefined) {
-            ids.add(String(beforeId));
+        if (assoc.isArray) {
+          // For array fields (hasMany/belongsToMany), extract IDs from array items
+          for (const data of [beforeData, afterData]) {
+            const arr = data?.[assoc.name];
+            if (Array.isArray(arr)) {
+              for (const item of arr) {
+                const itemId = typeof item === 'object' && item !== null ? (item as any).id : item;
+                if (itemId != null) {
+                  ids.add(String(itemId));
+                }
+              }
+            }
           }
-          if (afterId !== null && afterId !== undefined) {
-            ids.add(String(afterId));
+        } else {
+          // Check both the association field name and the foreign key
+          for (const key of [assoc.name, assoc.foreignKey]) {
+            const beforeId = beforeData?.[key];
+            const afterId = afterData?.[key];
+            if (beforeId !== null && beforeId !== undefined) {
+              ids.add(String(beforeId));
+            }
+            if (afterId !== null && afterId !== undefined) {
+              ids.add(String(afterId));
+            }
           }
         }
       }

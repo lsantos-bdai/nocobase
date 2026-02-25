@@ -1,6 +1,23 @@
 import { Context, Next } from '@nocobase/actions';
 import { buildCascadePreview, PreviewItem } from '../utils/cascade-helpers';
 import { validateRollbackSchema } from '../utils/schema-validator';
+import { resolveFieldMetadata } from './configure';
+import { getAssociationFieldNames } from '../utils/snapshot-helpers';
+
+// System fields that are auto-managed and should not appear in rollback preview
+const SYSTEM_FIELDS = ['createdAt', 'updatedAt', 'deletedAt', 'createdById', 'updatedById'];
+
+/**
+ * Remove system-managed fields from data object for cleaner preview
+ */
+function stripSystemFields(data: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!data) return null;
+  const result = { ...data };
+  for (const field of SYSTEM_FIELDS) {
+    delete result[field];
+  }
+  return result;
+}
 
 /**
  * POST /api/cdc:preview
@@ -59,8 +76,10 @@ export async function preview(ctx: Context, next: Next) {
   }
 
   const repo = ctx.db.getRepository(collectionName);
+  const associations = getAssociationFieldNames(ctx.db, collectionName);
   const currentRecord = await repo.findOne({
     filterByTk: targetRecordId,
+    appends: associations.length > 0 ? associations : undefined,
   });
 
   // Determine what action will be taken
@@ -90,8 +109,8 @@ export async function preview(ctx: Context, next: Next) {
       recordId: targetRecordId,
       recordName: getRecordName(snapshotData as Record<string, unknown>),
       action,
-      currentData: currentRecord ? currentRecord.get({ plain: true }) : null,
-      rollbackData,
+      currentData: stripSystemFields(currentRecord ? currentRecord.get({ plain: true }) : null),
+      rollbackData: stripSystemFields(rollbackData),
       schemaErrors: mainSchemaValidation.errors.length > 0 ? mainSchemaValidation.errors : undefined,
     },
   ];
@@ -113,10 +132,15 @@ export async function preview(ctx: Context, next: Next) {
     (item) => item.schemaErrors && item.schemaErrors.length > 0,
   );
 
+  // Resolve field metadata for human-readable labels and related values
+  const metadata = await resolveFieldMetadata(ctx.db, collectionName, [targetSnapshot]);
+
   ctx.body = {
     preview: previewItems,
     affectedRecords: previewItems.length,
     hasSchemaErrors,
+    fieldLabels: metadata.fieldLabels,
+    relatedValues: metadata.relatedValues,
     targetSnapshot: {
       id: targetSnapshot.get('id'),
       version: targetSnapshot.get('version'),

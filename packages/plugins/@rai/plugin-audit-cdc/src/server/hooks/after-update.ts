@@ -8,6 +8,7 @@ import {
   shouldAuditCollection,
   cleanupSnapshots,
   updateFilterMetadata,
+  getAssociationFieldNames,
 } from '../utils/snapshot-helpers';
 
 export interface HookOptions {
@@ -78,7 +79,15 @@ export function createAfterUpdateHook(db: Database, logger?: Logger) {
 
     const saveSnapshot = async () => {
       try {
-        const afterData = getPlainData(model);
+        // Fetch record with associations to get complete data
+        const associations = getAssociationFieldNames(db, collectionName);
+        console.log('[CDC DEBUG] afterUpdate saveSnapshot: fetching with appends=', associations);
+        const updatedRecord = await db.getRepository(collectionName).findOne({
+          filterByTk: recordId,
+          appends: associations.length > 0 ? associations : undefined,
+        });
+        console.log('[CDC DEBUG] afterUpdate saveSnapshot: updatedRecord=', !!updatedRecord);
+        const afterData = updatedRecord ? updatedRecord.get({ plain: true }) : getPlainData(model);
         const changedFields = getChangedFields(beforeData, afterData);
 
         // Skip if nothing actually changed
@@ -116,6 +125,7 @@ export function createAfterUpdateHook(db: Database, logger?: Logger) {
         // Cleanup old snapshots based on retention/maxVersions config
         await cleanupSnapshots(db, collectionName, recordId);
       } catch (err) {
+        console.error(`[CDC DEBUG] afterUpdate saveSnapshot error for ${collectionName}:`, err);
         if (logger) {
           logger.error(`[CDC] afterUpdate error for ${collectionName}:`, err);
         }
