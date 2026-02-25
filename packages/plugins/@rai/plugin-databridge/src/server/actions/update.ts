@@ -3,6 +3,7 @@ import {
   getPlatformBySlugOrThrow,
   lookupAssetIdByName,
   unresolveData,
+  validateFieldValues,
   RelationNotFoundError,
   ValidationError,
   AssetNotFoundError,
@@ -100,6 +101,12 @@ export async function update(ctx: Context, next: Next) {
         throw new ValidationError([`Collection '${collectionName}' not found`]);
       }
 
+      // Validate field values (types, enums, etc.) using NocoBase Interface system
+      const valueErrors = await validateFieldValues(collection, data, ctx.db);
+      if (valueErrors.length > 0) {
+        throw new ValidationError(valueErrors);
+      }
+
       // Convert human-readable data to internal format
       let internalData: Record<string, unknown>;
       try {
@@ -132,6 +139,7 @@ export async function update(ctx: Context, next: Next) {
         filterByTk: data.id,
         values: updateValues,
         transaction,
+        context: ctx, // Pass Koa context so hooks can access currentUser
       });
 
       updatedAssets.push(assetName);

@@ -31,8 +31,53 @@
 
 - [X] preview block not showing up properly
 - [X] filter by changed fields
+- [X] all activity only updates on page refresh
+- [X] changes made via api show user as unknown
+- [ ] databridge update endpoint doesn't need `platform`
+- [ ] add an `enable_all` button to turn audit on for all collections
+
+- [X] test bad updates
+  - [X] bad_invalid_enum.json
+```json
+{
+  "error": "Validation failed",
+  "details": {
+    "asset": "",
+    "message": "model: \"Intel RealSense D455\" is not a valid option in model field., status: \"Banana\" is not a valid option in status field."
+  }
+}
+```
+  - [X] bad_invalid_relation_one_to_many.json
+```json
+{
+  "error": "Relation not found",
+  "details": {
+    "asset": "Station 3",
+    "field": "left_realsense_cameras",
+    "value": "IRS999999999",
+    "message": "Asset 'IRS999999999' not found for field 'left_realsense_cameras'"
+  }
+}
+```
+  - [X] bad_invalid_relation_one_to_one.json
+```json
+{
+  "error": "Relation not found",
+  "details": {
+    "asset": "Station 3",
+    "field": "left_gpu",
+    "value": "NONEXISTENT_WS",
+    "message": "Asset 'NONEXISTENT_WS' not found for field 'left_gpu'"
+  }
+}
+```
+  - [ ] bad_invalid_type.json
+  - [ ] bad_missing_required_id.json
+  - [ ] bad_missing_required_serial.json
+  - [ ] bad_modified_system_data.json
+  - [ ] bad_modified_timestamps.json
+
 - [-] CRUD on assets?
-  - [ ] test bad update
   - [ ] test single update
     - [ ] test rollback
   - [ ] test bulk update

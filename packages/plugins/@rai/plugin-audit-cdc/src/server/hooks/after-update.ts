@@ -10,6 +10,7 @@ import {
   updateFilterMetadata,
   getAssociationFieldNames,
 } from '../utils/snapshot-helpers';
+import { extractAuthInfo } from '../utils/auth-helpers';
 
 export interface HookOptions {
   transaction?: any;
@@ -96,13 +97,25 @@ export function createAfterUpdateHook(db: Database, logger?: Logger) {
         }
 
         const version = await getNextVersion(db, collectionName, recordId);
+        console.log('[CDC DEBUG] afterUpdate saveSnapshot: version=', version);
 
-        // Get user ID from context if available
-        const userId = options.context?.state?.currentUser?.id ?? null;
+        // Get auth info (user ID and/or API key info)
+        console.log('[CDC DEBUG] afterUpdate saveSnapshot: calling extractAuthInfo...');
+        const authInfo = await extractAuthInfo(db, options);
+        console.log('[CDC DEBUG] afterUpdate saveSnapshot: authInfo=', authInfo);
 
         const now = new Date();
         const snapshotRepo = db.getRepository('cdc_snapshots');
-        await snapshotRepo.create({
+        console.log('[CDC DEBUG] afterUpdate saveSnapshot: creating snapshot with values:', {
+          collectionName,
+          recordId,
+          operation: 'update',
+          changedFields,
+          userId: authInfo.userId,
+          isApiKey: authInfo.isApiKey,
+          version,
+        });
+        const snapshot = await snapshotRepo.create({
           values: {
             collectionName,
             recordId,
@@ -110,13 +123,15 @@ export function createAfterUpdateHook(db: Database, logger?: Logger) {
             beforeData,
             afterData,
             changedFields,
-            userId,
+            userId: authInfo.userId,
+            isApiKey: authInfo.isApiKey,
             createdAt: now,
             updatedAt: now,
             version,
           },
           hooks: false, // Prevent CDC hooks from firing on snapshot creation
         });
+        console.log('[CDC DEBUG] afterUpdate saveSnapshot: snapshot created, id=', snapshot?.get('id'));
 
         // Update filter metadata (capturedRecords and capturedFields)
         const recordName = String(afterData.name || afterData.title || afterData.label || afterData.nickname || recordId);

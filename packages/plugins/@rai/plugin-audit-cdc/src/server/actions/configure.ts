@@ -274,6 +274,12 @@ export async function listSnapshots(ctx: Context, next: Next) {
     const user = snapshot.get('user') as Record<string, unknown> | null;
     const collectionName = snapshot.get('collectionName') as string;
 
+    // Get user name from the user relationship (works for both GUI and API key requests)
+    let userName = null;
+    if (user) {
+      userName = user.nickname || user.username || user.email || `User ${user.id}`;
+    }
+
     return {
       id: snapshot.get('id'),
       recordId: snapshot.get('recordId'),
@@ -285,7 +291,8 @@ export async function listSnapshots(ctx: Context, next: Next) {
       afterData,
       changedFields: snapshot.get('changedFields'),
       userId: snapshot.get('userId'),
-      userName: user ? (user.nickname || user.username || user.email || `User ${user.id}`) : null,
+      isApiKey: snapshot.get('isApiKey') || false,
+      userName,
       createdAt: snapshot.get('createdAt'),
       version: snapshot.get('version'),
     };

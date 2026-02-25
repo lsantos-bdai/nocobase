@@ -1,0 +1,290 @@
+{
+  "Station 3": {
+    "platform": "models",
+    "collection": "t_98x374ie2j7",
+    "collection_title": "ArmStation",
+    "data": {
+      "table_type": "Table",
+      "id": 3,
+      "createdat": "2026-02-19T15:57:31.340Z",
+      "updatedat": "2026-02-19T15:57:35.085Z",
+      "name": "Station 3",
+      "right_ros_domain_id": "226",
+      "left_ros_domain_id": "226",
+      "left_gpu": "WS39",
+      "right_gpu": "WS39",
+      "right_rt": "TS-P360-WS05",
+      "left_rt": "TS-P360-WS05",
+      "left_realsense_cameras": [
+        "IRS022",
+        "IRS023",
+        "IRS046",
+        "IRS047",
+        "IRS048",
+        "IRS070",
+        "IRS076",
+        "IRS077"
+      ],
+      "right_realsense_cameras": [
+        "IRS022",
+        "IRS023",
+        "IRS046",
+        "IRS047",
+        "IRS048",
+        "IRS070",
+        "IRS076",
+        "IRS077"
+      ],
+      "robot_left_arm": "Tomato",
+      "robot_right_arm": "Cherry",
+      "left_gello": "LATD-002",
+      "right_gello": "LATD-001"
+    }
+  },
+  "Tomato": {
+    "platform": "models",
+    "collection": "t_ta7jaqy245a",
+    "collection_title": "FrankaResearch3",
+    "data": {
+      "createdat": "2026-02-19T15:57:31.993Z",
+      "updatedat": "2026-02-19T15:57:37.888Z",
+      "name": "Tomato",
+      "serial_number": "290102-1324341",
+      "ethernet_ip": "10.102.1.101",
+      "team": "Craft",
+      "status": "Functional",
+      "model": "Franka Research 3",
+      "fw": "5.6",
+      "id": 3,
+      "shunk_gripper": null,
+      "franka_hand_gripper": null,
+      "robotiq_gripper": "RQ-005",
+      "force_torque_sensor": "FT-02"
+    }
+  },
+  "Cherry": {
+    "platform": "models",
+    "collection": "t_ta7jaqy245a",
+    "collection_title": "FrankaResearch3",
+    "data": {
+      "createdat": "2026-02-19T15:57:32.121Z",
+      "updatedat": "2026-02-19T15:57:38.080Z",
+      "name": "Cherry",
+      "serial_number": "290102-1324352",
+      "ethernet_ip": "10.103.1.101",
+      "team": "Craft",
+      "status": "Functional",
+      "model": "Franka Research 3",
+      "fw": "5.6",
+      "id": 12,
+      "shunk_gripper": null,
+      "franka_hand_gripper": null,
+      "robotiq_gripper": "RQ-004",
+      "force_torque_sensor": "FT-01"
+    }
+  },
+  "IRS022": {
+    "platform": "models",
+    "collection": "t_zldxcwpdr9g",
+    "collection_title": "IntelRealSense",
+    "data": {
+      "name": "IRS022",
+      "serial_number": "239222302543",
+      "semantic_name": "back_left_camera",
+      "model": "Intel RealSense D455",
+      "firmware": null,
+      "status": "Banana",
+      "id": 23,
+      "createdat": "2026-02-19T15:57:29.976Z",
+      "updatedat": "2026-02-19T15:57:29.976Z"
+    }
+  },
+  "IRS023": {
+    "platform": "models",
+    "collection": "t_zldxcwpdr9g",
+    "collection_title": "IntelRealSense",
+    "data": {
+      "name": "IRS023",
+      "serial_number": "130322274271",
+      "semantic_name": "right_arm_camera",
+      "model": "Intel RealSense D405",
+      "firmware": null,
+      "status": "Operational",
+      "id": 24,
+      "createdat": "2026-02-19T15:57:29.990Z",
+      "updatedat": "2026-02-19T15:57:29.990Z"
+    }
+  },
+  "IRS046": {
+    "platform": "models",
+    "collection": "t_zldxcwpdr9g",
+    "collection_title": "IntelRealSense",
+    "data": {
+      "name": "IRS046",
+      "serial_number": "215122253940",
+      "semantic_name": "back_right_camera",
+      "model": "Intel RealSense D455",
+      "firmware": null,
+      "status": "Operational",
+      "id": 47,
+      "createdat": "2026-02-19T15:57:30.278Z",
+      "updatedat": "2026-02-19T15:57:30.278Z"
+    }
+  },
+  "IRS047": {
+    "platform": "models",
+    "collection": "t_zldxcwpdr9g",
+    "collection_title": "IntelRealSense",
+    "data": {
+      "name": "IRS047",
+      "serial_number": "242422301906",
+      "semantic_name": "front_right_camera",
+      "model": "Intel RealSense D455",
+      "firmware": null,
+      "status": "Operational",
+      "id": 48,
+      "createdat": "2026-02-19T15:57:30.291Z",
+      "updatedat": "2026-02-19T15:57:30.291Z"
+    }
+  },
+  "IRS048": {
+    "platform": "models",
+    "collection": "t_zldxcwpdr9g",
+    "collection_title": "IntelRealSense",
+    "data": {
+      "name": "IRS048",
+      "serial_number": "215122257275",
+      "semantic_name": "front_left_camera",
+      "model": "Intel RealSense D455",
+      "firmware": null,
+      "status": "Operational",
+      "id": 49,
+      "createdat": "2026-02-19T15:57:30.304Z",
+      "updatedat": "2026-02-19T15:57:30.304Z"
+    }
+  },
+  "IRS070": {
+    "platform": "models",
+    "collection": "t_zldxcwpdr9g",
+    "collection_title": "IntelRealSense",
+    "data": {
+      "name": "IRS070",
+      "serial_number": "241122301420",
+      "semantic_name": "head_camera",
+      "model": "Intel RealSense D455",
+      "firmware": null,
+      "status": "Operational",
+      "id": 71,
+      "createdat": "2026-02-19T15:57:30.599Z",
+      "updatedat": "2026-02-19T15:57:30.599Z"
+    }
+  },
+  "IRS076": {
+    "platform": "models",
+    "collection": "t_zldxcwpdr9g",
+    "collection_title": "IntelRealSense",
+    "data": {
+      "name": "IRS076",
+      "serial_number": "218622275626",
+      "semantic_name": "left_arm_camera",
+      "model": "Intel RealSense D405",
+      "firmware": null,
+      "status": "Operational",
+      "id": 74,
+      "createdat": "2026-02-19T15:57:30.640Z",
+      "updatedat": "2026-02-19T15:57:30.640Z"
+    }
+  },
+  "IRS077": {
+    "platform": "models",
+    "collection": "t_zldxcwpdr9g",
+    "collection_title": "IntelRealSense",
+    "data": {
+      "name": "IRS077",
+      "serial_number": "218622275241",
+      "semantic_name": "workspace_camera",
+      "model": "Intel RealSense D405",
+      "firmware": null,
+      "status": "Operational",
+      "id": 75,
+      "createdat": "2026-02-19T15:57:30.656Z",
+      "updatedat": "2026-02-19T15:57:30.656Z"
+    }
+  },
+  "LATD-001": {
+    "platform": "models",
+    "collection": "t_xs3ll5sl6w2",
+    "collection_title": "LeaderArmTeleopDevice",
+    "data": {
+      "createdat": "2026-02-19T15:57:32.294Z",
+      "updatedat": "2026-02-19T15:57:32.294Z",
+      "name": "LATD-001",
+      "id": 1,
+      "serial_number": "FTA2U3U0",
+      "model": "Gello"
+    }
+  },
+  "LATD-002": {
+    "platform": "models",
+    "collection": "t_xs3ll5sl6w2",
+    "collection_title": "LeaderArmTeleopDevice",
+    "data": {
+      "createdat": "2026-02-19T15:57:32.307Z",
+      "updatedat": "2026-02-19T15:57:32.307Z",
+      "name": "LATD-002",
+      "id": 2,
+      "serial_number": "FT891K7P",
+      "model": "Gello"
+    }
+  },
+  "TS-P360-WS05": {
+    "platform": "models",
+    "collection": "t_9dx8b5vb55b",
+    "collection_title": "WorkStation",
+    "data": {
+      "specs": null,
+      "special_sw": null,
+      "user_type_role": null,
+      "site": null,
+      "rt_throttling": null,
+      "isolated_cores": null,
+      "id": 41,
+      "createdat": "2026-02-19T15:57:33.475Z",
+      "updatedat": "2026-02-19T15:57:33.475Z",
+      "name": "TS-P360-WS05",
+      "common_use": null,
+      "static_nic_ip_pairs": null,
+      "notes": null,
+      "os": null,
+      "ip_address": "10.17.6.174",
+      "location": null,
+      "gpu_specs": null,
+      "fqdn": null
+    }
+  },
+  "WS39": {
+    "platform": "models",
+    "collection": "t_9dx8b5vb55b",
+    "collection_title": "WorkStation",
+    "data": {
+      "specs": null,
+      "special_sw": null,
+      "user_type_role": null,
+      "site": "Cambridge",
+      "rt_throttling": null,
+      "isolated_cores": null,
+      "id": 84,
+      "createdat": "2026-02-19T15:57:34.080Z",
+      "updatedat": "2026-02-19T15:57:34.080Z",
+      "name": "WS39",
+      "common_use": false,
+      "static_nic_ip_pairs": null,
+      "notes": null,
+      "os": null,
+      "ip_address": "10.50.3.102",
+      "location": "Arm farm",
+      "gpu_specs": null,
+      "fqdn": null
+    }
+  }
+}

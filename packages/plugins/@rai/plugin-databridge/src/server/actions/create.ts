@@ -4,6 +4,7 @@ import {
   resolveCollectionName,
   unresolveData,
   validateRequiredFields,
+  validateFieldValues,
   RelationNotFoundError,
   ValidationError,
 } from '../utils';
@@ -117,8 +118,13 @@ export async function create(ctx: Context, next: Next) {
 
       // Validate required fields
       const requiredErrors = validateRequiredFields(collection, itemData, true);
-      if (requiredErrors.length > 0) {
-        throw new ValidationError(requiredErrors);
+
+      // Validate field values (types, enums, etc.) using NocoBase Interface system
+      const valueErrors = await validateFieldValues(collection, itemData, ctx.db);
+
+      const allErrors = [...requiredErrors, ...valueErrors];
+      if (allErrors.length > 0) {
+        throw new ValidationError(allErrors);
       }
 
       // Check for duplicate name in platform lookup table
@@ -173,6 +179,7 @@ export async function create(ctx: Context, next: Next) {
       await ctx.db.getRepository(collectionName).create({
         values: internalData,
         transaction,
+        context: ctx, // Pass Koa context so hooks can access currentUser
       });
 
       createdAssets.push(assetName);

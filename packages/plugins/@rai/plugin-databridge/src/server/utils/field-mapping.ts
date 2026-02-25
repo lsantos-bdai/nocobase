@@ -181,6 +181,48 @@ export function validateRequiredFields(
 }
 
 /**
+ * Validate field values using NocoBase's Interface system.
+ * This validates types, enums, booleans, dates, etc.
+ * Relations are handled separately by unresolveData().
+ */
+export async function validateFieldValues(
+  collection: Collection,
+  data: Record<string, unknown>,
+  db: Database,
+): Promise<string[]> {
+  const errors: string[] = [];
+  const fieldMapping = buildFieldMapping(collection);
+
+  for (const [normalizedName, field] of fieldMapping) {
+    const value = data[normalizedName];
+
+    // Skip null/undefined values (required validation handles this)
+    if (value === undefined || value === null) continue;
+
+    // Skip relation fields (handled by unresolveData with custom platform lookup)
+    if (field.isRelationField()) continue;
+
+    // Get the interface for this field
+    const interfaceName = field.options?.interface;
+    if (!interfaceName) continue;
+
+    const InterfaceClass = db.interfaceManager.getInterfaceType(interfaceName);
+    if (!InterfaceClass) continue;
+
+    try {
+      const interfaceInstance = new InterfaceClass(field.options);
+      // Validate by attempting to convert - throws on invalid
+      await interfaceInstance.toValue(value, { field });
+    } catch (error) {
+      const fieldTitle = field.options?.title || field.name;
+      errors.push(`${fieldTitle}: ${error.message}`);
+    }
+  }
+
+  return errors;
+}
+
+/**
  * Resolve a collection name or title to the internal collection name.
  */
 export async function resolveCollectionName(

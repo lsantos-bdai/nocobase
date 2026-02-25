@@ -56,6 +56,11 @@ export default defineCollection({
       foreignKey: 'userId',
     },
     {
+      type: 'boolean',
+      name: 'isApiKey',
+      defaultValue: false,
+    },
+    {
       type: 'date',
       name: 'createdAt',
     },

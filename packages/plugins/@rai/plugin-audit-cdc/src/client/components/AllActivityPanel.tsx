@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Tag, Space, Button, DatePicker, Select, Typography, Spin, Empty, message } from 'antd';
-import { ExpandOutlined, CompressOutlined, FilterOutlined } from '@ant-design/icons';
+import { ExpandOutlined, CompressOutlined, FilterOutlined, ReloadOutlined, ApiOutlined } from '@ant-design/icons';
 import { useAPIClient } from '@nocobase/client';
 import { DiffViewer } from './DiffViewer';
 import { SnapshotDrawer } from './SnapshotDrawer';
@@ -19,6 +19,7 @@ interface Snapshot {
   afterData: Record<string, unknown> | null;
   changedFields: string[];
   userId: number | null;
+  isApiKey: boolean;
   userName: string | null;
   createdAt: string;
   version: number;
@@ -220,8 +221,18 @@ export const AllActivityPanel: React.FC<AllActivityPanelProps> = ({ enabledColle
       title: 'User',
       dataIndex: 'userName',
       key: 'userName',
-      width: 120,
-      render: (name: string | null) => name || <Text type="secondary">Unknown</Text>,
+      width: 150,
+      render: (name: string | null, record: Snapshot) => {
+        if (record.isApiKey) {
+          return (
+            <Space size={4}>
+              <ApiOutlined style={{ color: '#722ed1' }} />
+              <Text>{name || 'Unknown'}</Text>
+            </Space>
+          );
+        }
+        return name || <Text type="secondary">Unknown</Text>;
+      },
     },
     {
       title: 'Timestamp',
@@ -282,6 +293,9 @@ export const AllActivityPanel: React.FC<AllActivityPanelProps> = ({ enabledColle
             ]}
           />
           <RangePicker showTime onChange={handleDateRangeChange} />
+          <Button icon={<ReloadOutlined />} onClick={() => fetchSnapshots()} loading={loading}>
+            Refresh
+          </Button>
           {expandedRows.length > 0 ? (
             <Button size="small" icon={<CompressOutlined />} onClick={() => setExpandedRows([])}>
               Collapse All

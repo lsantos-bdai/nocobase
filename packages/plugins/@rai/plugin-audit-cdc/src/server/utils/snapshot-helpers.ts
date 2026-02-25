@@ -25,6 +25,52 @@ const SYSTEM_FIELDS = new Set([
   'updatedById',
 ]);
 
+/**
+ * Extract ID from a value for comparison purposes.
+ * For associations, we only care about which record is linked, not the record's data.
+ */
+function extractId(v: unknown): unknown {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'object' && !Array.isArray(v) && 'id' in (v as object)) {
+    return (v as { id: unknown }).id;
+  }
+  return v;
+}
+
+/**
+ * Equality comparison for CDC change detection.
+ * - Treats null/undefined as equal
+ * - For objects with 'id', compares only the ID (association relationships)
+ * - For arrays, compares sorted IDs
+ */
+export function deepEqual(a: unknown, b: unknown): boolean {
+  // Normalize null/undefined
+  const aNorm = a === undefined ? null : a;
+  const bNorm = b === undefined ? null : b;
+
+  if (aNorm === bNorm) return true;
+  if (aNorm === null || bNorm === null) return false;
+
+  // Array comparison - compare sorted IDs
+  if (Array.isArray(aNorm) && Array.isArray(bNorm)) {
+    if (aNorm.length !== bNorm.length) return false;
+    const aIds = aNorm.map(extractId).sort();
+    const bIds = bNorm.map(extractId).sort();
+    return JSON.stringify(aIds) === JSON.stringify(bIds);
+  }
+
+  // Object comparison - compare by ID only
+  const aId = extractId(aNorm);
+  const bId = extractId(bNorm);
+  if (aId !== aNorm || bId !== bNorm) {
+    // At least one was an object with id, compare IDs
+    return aId === bId;
+  }
+
+  // Fallback for non-association objects
+  return JSON.stringify(aNorm) === JSON.stringify(bNorm);
+}
+
 export function shouldAuditCollection(collectionName: string): boolean {
   if (EXCLUDED_COLLECTIONS.has(collectionName)) {
     return false;
@@ -114,14 +160,24 @@ export function getChangedFields(
 
     // Skip system-managed fields (createdAt, updatedAt, etc.)
     if (SYSTEM_FIELDS.has(key)) {
-      if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+      if (!deepEqual(beforeValue, afterValue)) {
         skippedSystemFields.push(key);
       }
       continue;
     }
 
-    // Compare values (simple JSON comparison)
-    if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+    // Normalize: treat undefined as null for comparison
+    // This prevents false positives like "undefined !== null"
+    const normalizedBefore = beforeValue === undefined ? null : beforeValue;
+    const normalizedAfter = afterValue === undefined ? null : afterValue;
+
+    // Both null/undefined = no change
+    if (normalizedBefore === null && normalizedAfter === null) {
+      continue;
+    }
+
+    // Use deep comparison for objects/arrays (handles associations properly)
+    if (!deepEqual(normalizedBefore, normalizedAfter)) {
       changedFields.push(key);
     }
   }

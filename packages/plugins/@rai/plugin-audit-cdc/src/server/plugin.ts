@@ -5,11 +5,14 @@ import {
   createAfterCreateHook,
   createAfterUpdateHook,
   createAfterDestroyHook,
+  createAfterUpdateWithAssociationsHook,
 } from './hooks';
 import { history, snapshot, preview, rollback, configure, listConfig, listSnapshots, getFilterOptions } from './actions';
 
 export class PluginAuditCdcServer extends Plugin {
   private hooksRegistered = false;
+  private afterUpdateWithAssociationsHandler: any = null;
+  private registeredCollections = new Set<string>();
 
   async afterAdd() {}
 
@@ -93,6 +96,9 @@ export class PluginAuditCdcServer extends Plugin {
     const afterDestroy = createAfterDestroyHook(db, logger);
     const afterCreate = createAfterCreateHook(db, logger);
 
+    // Create handler for afterUpdateWithAssociations (captures association-only changes)
+    this.afterUpdateWithAssociationsHandler = createAfterUpdateWithAssociationsHook(db, logger);
+
     // Register GLOBAL hooks - these fire for ALL collections
     // Each hook checks shouldAuditCollection and isCollectionEnabled before processing
     db.on('beforeUpdate', beforeUpdate);
@@ -101,8 +107,33 @@ export class PluginAuditCdcServer extends Plugin {
     db.on('afterDestroy', afterDestroy);
     db.on('afterCreate', afterCreate);
 
+    // Register afterUpdateWithAssociations for all existing collections
+    for (const [name, collection] of db.collections) {
+      this.registerCollectionAssociationHook(name);
+    }
+
+    // Listen for new collections being defined
+    db.on('afterDefineCollection', (collection) => {
+      this.registerCollectionAssociationHook(collection.name);
+    });
+
     this.hooksRegistered = true;
     console.log('[CDC DEBUG] Registered global hooks for CDC plugin');
+  }
+
+  private registerCollectionAssociationHook(collectionName: string) {
+    if (!this.afterUpdateWithAssociationsHandler) {
+      return;
+    }
+    // Prevent duplicate registration
+    if (this.registeredCollections.has(collectionName)) {
+      return;
+    }
+    // Register collection-specific afterUpdateWithAssociations hook
+    const eventName = `${collectionName}.afterUpdateWithAssociations`;
+    this.db.on(eventName, this.afterUpdateWithAssociationsHandler);
+    this.registeredCollections.add(collectionName);
+    console.log('[CDC DEBUG] Registered afterUpdateWithAssociations hook for:', collectionName);
   }
 }
 

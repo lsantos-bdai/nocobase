@@ -115,6 +115,7 @@ export async function deleteAssets(ctx: Context, next: Next) {
       await ctx.db.getRepository(collectionName).destroy({
         filter: { id: { $in: assetIds } },
         transaction,
+        context: ctx, // Pass Koa context so hooks can access currentUser
       });
 
       for (const info of infos) {
