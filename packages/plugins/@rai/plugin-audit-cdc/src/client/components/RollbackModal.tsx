@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Switch, Button, Alert, Spin, Typography, Tag, Divider, Space, message } from 'antd';
-import { ExclamationCircleOutlined, RollbackOutlined, WarningOutlined, StopOutlined } from '@ant-design/icons';
+import { Modal, Button, Alert, Spin, Typography, Tag, Divider, Space, message } from 'antd';
+import { RollbackOutlined, WarningOutlined, StopOutlined } from '@ant-design/icons';
 import { useAPIClient } from '@nocobase/client';
 import { DiffViewer } from './DiffViewer';
 
@@ -53,25 +53,27 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
   onSuccess,
 }) => {
   const api = useAPIClient();
-  const [cascade, setCascade] = useState(false);
   const [preview, setPreview] = useState<PreviewItem[] | null>(null);
+  const [canRollback, setCanRollback] = useState(true);
   const [hasSchemaErrors, setHasSchemaErrors] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [fieldLabels, setFieldLabels] = useState<Record<string, string>>({});
   const [relatedValues, setRelatedValues] = useState<Record<string, Record<string, string>>>({});
+  const [changedFields, setChangedFields] = useState<string[]>([]);
 
   useEffect(() => {
     if (visible && snapshot) {
       loadPreview();
     } else {
       setPreview(null);
-      setCascade(false);
+      setCanRollback(true);
       setHasSchemaErrors(false);
       setFieldLabels({});
       setRelatedValues({});
+      setChangedFields([]);
     }
-  }, [visible, snapshot, cascade]);
+  }, [visible, snapshot]);
 
   const loadPreview = async () => {
     if (!snapshot) return;
@@ -83,7 +85,6 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
         method: 'POST',
         data: {
           snapshotId: snapshot.id,
-          cascade,
         },
       });
 
@@ -91,9 +92,11 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
       const data = response?.data?.data || response?.data;
       if (data?.preview) {
         setPreview(data.preview);
+        setCanRollback(data.canRollback ?? true);
         setHasSchemaErrors(data.hasSchemaErrors || false);
         if (data.fieldLabels) setFieldLabels(data.fieldLabels);
         if (data.relatedValues) setRelatedValues(data.relatedValues);
+        if (data.changedFields) setChangedFields(data.changedFields);
       }
     } catch (err: any) {
       message.error(`Failed to load preview: ${err.message || 'Unknown error'}`);
@@ -112,7 +115,6 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
         method: 'POST',
         data: {
           snapshotId: snapshot.id,
-          cascade,
           confirmed: true,
         },
       });
@@ -182,7 +184,7 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
           icon={<RollbackOutlined />}
           onClick={handleRollback}
           loading={executing}
-          disabled={loadingPreview || executing || hasSchemaErrors}
+          disabled={loadingPreview || executing || !canRollback}
         >
           Execute Rollback
         </Button>,
@@ -220,13 +222,6 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
             </tr>
           </tbody>
         </table>
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
-        <Space>
-          <Text>Include related records (cascade):</Text>
-          <Switch checked={cascade} onChange={setCascade} disabled={loadingPreview || executing} />
-        </Space>
       </div>
 
       {hasSchemaErrors && preview && (
@@ -302,6 +297,7 @@ export const RollbackModal: React.FC<RollbackModalProps> = ({
                 <DiffViewer
                   beforeData={item.currentData}
                   afterData={item.rollbackData}
+                  changedFields={changedFields}
                   mode="unified"
                   fieldLabels={fieldLabels}
                   relatedValues={relatedValues}

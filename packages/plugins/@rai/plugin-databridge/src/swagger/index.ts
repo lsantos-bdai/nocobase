@@ -15,13 +15,128 @@ export default {
     { name: 'databridge', description: 'Asset CRUD operations (get, search, bulkCreate, bulkUpdate, bulkDelete)' },
     { name: 'databridge_platforms', description: 'Platform management' },
   ],
+  components: {
+    schemas: {
+      AssetData: {
+        type: 'object',
+        properties: {
+          id: {
+            oneOf: [{ type: 'integer' }, { type: 'string' }],
+            description: 'Record ID - REQUIRED for update/delete, auto-generated for create',
+          },
+          name: {
+            type: 'string',
+            description: 'Asset name - REQUIRED, must be unique within platform',
+          },
+        },
+        required: ['name'],
+        additionalProperties: true,
+        description: 'Asset data containing record fields',
+      },
+      AssetPayload: {
+        type: 'object',
+        properties: {
+          platform: {
+            type: 'string',
+            description: 'Platform slug (e.g., "models", "inventory") - REQUIRED',
+            example: 'models',
+          },
+          collection: {
+            type: 'string',
+            description: 'Internal collection name (e.g., "t_98x374ie2j7") - REQUIRED',
+            example: 't_98x374ie2j7',
+          },
+          collection_title: {
+            type: 'string',
+            description: 'Human-readable collection title (e.g., "ArmStation") - OPTIONAL for input',
+            example: 'ArmStation',
+          },
+          data: {
+            $ref: '#/components/schemas/AssetData',
+          },
+        },
+        required: ['platform', 'collection', 'data'],
+        description: 'Payload for a single asset, including platform and collection context',
+      },
+      AssetPayloadMap: {
+        type: 'object',
+        additionalProperties: {
+          $ref: '#/components/schemas/AssetPayload',
+        },
+        description: 'A map of asset names to their payloads. Keys are human-readable asset names.',
+        example: {
+          'Station 3': {
+            platform: 'models',
+            collection: 't_98x374ie2j7',
+            collection_title: 'ArmStation',
+            data: {
+              id: 3,
+              name: 'Station 3',
+              table_type: 'Table',
+              left_gpu: 'WS39',
+              right_gpu: 'WS39',
+            },
+          },
+          IRS022: {
+            platform: 'models',
+            collection: 't_abc123',
+            collection_title: 'RealsenseCamera',
+            data: {
+              id: 42,
+              name: 'IRS022',
+              serial_number: '12345678',
+            },
+          },
+        },
+      },
+      BulkOperationResponse: {
+        type: 'object',
+        properties: {
+          created: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of created asset names (for bulkCreate)',
+          },
+          updated: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of updated asset names (for bulkUpdate)',
+          },
+          deleted: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of deleted asset names (for bulkDelete)',
+          },
+          count: {
+            type: 'integer',
+            description: 'Number of assets affected',
+          },
+        },
+      },
+      ValidationErrorResponse: {
+        type: 'object',
+        properties: {
+          error: { type: 'string', description: 'Error type' },
+          details: {
+            type: 'object',
+            properties: {
+              asset: { type: 'string', description: 'Asset that caused the error' },
+              field: { type: 'string', description: 'Field that caused the error' },
+              value: { type: 'string', description: 'Invalid value' },
+              message: { type: 'string', description: 'Error message' },
+            },
+          },
+        },
+      },
+    },
+  },
   paths: {
     '/databridge:get': {
       get: {
         tags: ['databridge'],
         summary: 'Get assets by platform and name(s)',
         description:
-          'Get one or more assets by name. Supports relation traversal to recursively fetch related assets.',
+          'Get one or more assets by name. Returns data in AssetPayloadMap format. Supports relation traversal to recursively fetch related assets.',
         parameters: [
           {
             name: 'platform',
@@ -65,28 +180,10 @@ export default {
         ],
         responses: {
           200: {
-            description: 'Assets found (keyed by asset name)',
+            description: 'Assets found (AssetPayloadMap format)',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  additionalProperties: {
-                    type: 'object',
-                    properties: {
-                      platform: { type: 'string', description: 'Platform slug' },
-                      collection: { type: 'string', description: 'Internal collection name' },
-                      collection_title: {
-                        type: 'string',
-                        description: 'Human-readable collection title',
-                      },
-                      data: {
-                        type: 'object',
-                        description:
-                          'Asset data with resolved field names (from field titles, normalized to snake_case) and relation values (fetched from related records)',
-                      },
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/AssetPayloadMap' },
               },
             },
           },
@@ -140,24 +237,10 @@ export default {
         ],
         responses: {
           200: {
-            description: 'Search results (keyed by asset name)',
+            description: 'Search results (AssetPayloadMap format)',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  additionalProperties: {
-                    type: 'object',
-                    properties: {
-                      platform: { type: 'string', description: 'Platform slug' },
-                      collection: { type: 'string', description: 'Internal collection name' },
-                      collection_title: { type: 'string', description: 'Human-readable collection title' },
-                      data: {
-                        type: 'object',
-                        description: 'Asset data with resolved field names and relation values',
-                      },
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/AssetPayloadMap' },
               },
             },
           },
@@ -242,40 +325,14 @@ export default {
     '/databridge:bulkUpdate': {
       post: {
         tags: ['databridge'],
-        summary: 'Bulk update assets using human-readable format',
+        summary: 'Bulk update assets using unified AssetPayloadMap format',
         description:
-          'Update one or more assets using the same format returned by the get endpoint. All operations are ACID - the entire batch succeeds or fails atomically.',
-        parameters: [
-          {
-            name: 'platform',
-            in: 'query',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Platform slug',
-          },
-        ],
+          'Update one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request. All operations are ACID - the entire batch succeeds or fails atomically. The `data.id` field is REQUIRED to identify the record to update.',
         requestBody: {
+          required: true,
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                description: 'Object keyed by asset name, with same structure as get response',
-                additionalProperties: {
-                  type: 'object',
-                  required: ['collection', 'data'],
-                  properties: {
-                    platform: { type: 'string', description: 'Platform slug' },
-                    collection: { type: 'string', description: 'Internal collection name' },
-                    collection_title: { type: 'string', description: 'Human-readable collection title' },
-                    data: {
-                      type: 'object',
-                      required: ['id'],
-                      description:
-                        'Asset data with human-readable field names. Must include "id" for identifying the record.',
-                    },
-                  },
-                },
-              },
+              schema: { $ref: '#/components/schemas/AssetPayloadMap' },
               example: {
                 'Station 1': {
                   platform: 'models',
@@ -286,6 +343,15 @@ export default {
                     name: 'Station 1',
                     left_gpu: 'WS63',
                     right_gpu: 'WS64',
+                  },
+                },
+                IRS026: {
+                  platform: 'inventory',
+                  collection: 't_abc123',
+                  data: {
+                    id: 26,
+                    name: 'IRS026',
+                    serial_number: '999999',
                   },
                 },
               },
@@ -308,30 +374,20 @@ export default {
                     count: { type: 'integer', description: 'Number of assets updated' },
                   },
                 },
+                example: {
+                  updated: ['Station 1', 'IRS026'],
+                  count: 2,
+                },
               },
             },
           },
-          400: { description: 'Invalid request format or missing required parameters' },
+          400: { description: 'Invalid request format or missing data.id' },
           404: { description: 'Platform or asset not found' },
           422: {
             description: 'Validation failed (relation not found, type mismatch, etc.)',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    error: { type: 'string' },
-                    details: {
-                      type: 'object',
-                      properties: {
-                        asset: { type: 'string', description: 'Asset that caused the error' },
-                        field: { type: 'string', description: 'Field that caused the error' },
-                        value: { type: 'string', description: 'Invalid value' },
-                        message: { type: 'string', description: 'Error message' },
-                      },
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
               },
             },
           },
@@ -341,69 +397,31 @@ export default {
     '/databridge:bulkCreate': {
       post: {
         tags: ['databridge'],
-        summary: 'Bulk create new assets using human-readable format',
+        summary: 'Bulk create assets using unified AssetPayloadMap format',
         description:
-          'Create one or more assets in a collection. Supports batch creation. All operations are ACID - the entire batch succeeds or fails atomically.',
-        parameters: [
-          {
-            name: 'platform',
-            in: 'query',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Platform slug',
-          },
-        ],
+          'Create one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request. The `id` field in data is ignored (auto-generated). All operations are ACID - the entire batch succeeds or fails atomically.',
         requestBody: {
+          required: true,
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                required: ['collection', 'data'],
-                properties: {
-                  collection: {
-                    type: 'string',
-                    description: 'Collection name or title',
-                  },
+              schema: { $ref: '#/components/schemas/AssetPayloadMap' },
+              example: {
+                'Station 2': {
+                  platform: 'models',
+                  collection: 't_98x374ie2j7',
                   data: {
-                    oneOf: [
-                      {
-                        type: 'object',
-                        required: ['name'],
-                        description: 'Single asset to create',
-                      },
-                      {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          required: ['name'],
-                        },
-                        description: 'Array of assets to create',
-                      },
-                    ],
+                    name: 'Station 2',
+                    left_gpu: 'WS63',
+                    right_gpu: 'WS64',
+                    table_type: 'Table',
                   },
                 },
-              },
-              examples: {
-                single: {
-                  summary: 'Create single asset',
-                  value: {
-                    collection: 'ArmStation',
-                    data: {
-                      name: 'Station 2',
-                      left_gpu: 'WS63',
-                      right_gpu: 'WS64',
-                      table_type: 'Table',
-                    },
-                  },
-                },
-                batch: {
-                  summary: 'Batch create assets',
-                  value: {
-                    collection: 'ArmStation',
-                    data: [
-                      { name: 'Station 2', left_gpu: 'WS63' },
-                      { name: 'Station 3', left_gpu: 'WS64' },
-                    ],
+                IRS099: {
+                  platform: 'models',
+                  collection: 't_abc123',
+                  data: {
+                    name: 'IRS099',
+                    serial_number: '99999',
                   },
                 },
               },
@@ -426,28 +444,20 @@ export default {
                     count: { type: 'integer', description: 'Number of assets created' },
                   },
                 },
+                example: {
+                  created: ['Station 2', 'IRS099'],
+                  count: 2,
+                },
               },
             },
           },
-          400: { description: 'Invalid request format or missing required parameters' },
+          400: { description: 'Invalid request format' },
           404: { description: 'Platform or collection not found' },
           409: {
             description: 'Duplicate name - asset already exists',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    error: { type: 'string' },
-                    details: {
-                      type: 'object',
-                      properties: {
-                        asset: { type: 'string', description: 'Duplicate asset name' },
-                        message: { type: 'string', description: 'Error message' },
-                      },
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
               },
             },
           },
@@ -455,21 +465,7 @@ export default {
             description: 'Validation failed (relation not found, missing required field, etc.)',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    error: { type: 'string' },
-                    details: {
-                      type: 'object',
-                      properties: {
-                        asset: { type: 'string', description: 'Asset that caused the error' },
-                        field: { type: 'string', description: 'Field that caused the error' },
-                        value: { type: 'string', description: 'Invalid value' },
-                        message: { type: 'string', description: 'Error message' },
-                      },
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
               },
             },
           },
@@ -479,48 +475,29 @@ export default {
     '/databridge:bulkDelete': {
       post: {
         tags: ['databridge'],
-        summary: 'Bulk delete assets by name',
+        summary: 'Bulk delete assets using unified AssetPayloadMap format',
         description:
-          'Delete one or more assets by name. Optionally filter by collection. All operations are ACID - the entire batch succeeds or fails atomically. Lookup table entries are automatically cleaned up via hooks.',
-        parameters: [
-          {
-            name: 'platform',
-            in: 'query',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Platform slug',
-          },
-        ],
+          'Delete one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request. Only `platform`, `collection`, and `data.name` are required (data.id can be used for lookup). All operations are ACID - the entire batch succeeds or fails atomically.',
         requestBody: {
+          required: true,
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                required: ['assets'],
-                properties: {
-                  assets: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    description: 'Asset names to delete',
-                  },
-                  collection: {
-                    type: 'string',
-                    description: 'Optional collection filter (name or title)',
+              schema: { $ref: '#/components/schemas/AssetPayloadMap' },
+              example: {
+                'Station 1': {
+                  platform: 'models',
+                  collection: 't_98x374ie2j7',
+                  data: {
+                    id: 1,
+                    name: 'Station 1',
                   },
                 },
-              },
-              examples: {
-                simple: {
-                  summary: 'Delete multiple assets',
-                  value: {
-                    assets: ['Station 1', 'IRS026'],
-                  },
-                },
-                withCollection: {
-                  summary: 'Delete from specific collection',
-                  value: {
-                    collection: 'ArmStation',
-                    assets: ['Station 1'],
+                IRS026: {
+                  platform: 'inventory',
+                  collection: 't_abc123',
+                  data: {
+                    id: 42,
+                    name: 'IRS026',
                   },
                 },
               },
@@ -543,27 +520,27 @@ export default {
                     count: { type: 'integer', description: 'Number of assets deleted' },
                   },
                 },
+                example: {
+                  deleted: ['Station 1', 'IRS026'],
+                  count: 2,
+                },
               },
             },
           },
-          400: { description: 'Invalid request format or missing required parameters' },
+          400: { description: 'Invalid request format' },
           404: {
             description: 'Platform, collection, or asset not found',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    error: { type: 'string' },
-                    details: {
-                      type: 'object',
-                      properties: {
-                        asset: { type: 'string', description: 'Asset that was not found' },
-                        message: { type: 'string', description: 'Error message' },
-                      },
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
+              },
+            },
+          },
+          422: {
+            description: 'Validation error',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
               },
             },
           },

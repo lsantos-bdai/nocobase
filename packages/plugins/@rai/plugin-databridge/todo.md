@@ -34,7 +34,7 @@
 - [X] all activity only updates on page refresh
 - [X] changes made via api show user as unknown
 - [ ] databridge update endpoint doesn't need `platform`
-- [ ] add an `enable_all` button to turn audit on for all collections
+- [X] add an `enable_all` button to turn audit on for all collections
 
 - [X] test bad updates
   - [X] bad_invalid_enum.json

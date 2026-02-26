@@ -1,4 +1,6 @@
-import { Database, Repository, Model } from '@nocobase/database';
+import { Database, Model } from '@nocobase/database';
+import { extractAuthInfo } from './auth-helpers';
+import type { HookOptions, HookValidationResult, CdcContext, CreateSnapshotParams, Logger } from '../hooks/types';
 
 // Collections that should never be audited
 export const EXCLUDED_COLLECTIONS = new Set([
@@ -17,7 +19,7 @@ export const EXCLUDED_COLLECTIONS = new Set([
 export const EXCLUDED_PREFIXES = ['_', 'ui', 'auth'];
 
 // System-managed fields that should not trigger snapshots
-const SYSTEM_FIELDS = new Set([
+export const SYSTEM_FIELDS = new Set([
   'createdAt',
   'updatedAt',
   'deletedAt',
@@ -25,50 +27,40 @@ const SYSTEM_FIELDS = new Set([
   'updatedById',
 ]);
 
+// Array version for consumers that need iteration
+export const SYSTEM_FIELDS_ARRAY = ['createdAt', 'updatedAt', 'deletedAt', 'createdById', 'updatedById'];
+
 /**
- * Extract ID from a value for comparison purposes.
- * For associations, we only care about which record is linked, not the record's data.
+ * Extract a human-readable name from record data.
+ * Tries common name fields in order of preference.
  */
-function extractId(v: unknown): unknown {
-  if (v === null || v === undefined) return null;
-  if (typeof v === 'object' && !Array.isArray(v) && 'id' in (v as object)) {
-    return (v as { id: unknown }).id;
-  }
-  return v;
+export function getRecordName(data: Record<string, unknown> | null): string {
+  if (!data) return 'Unknown';
+  return String(
+    data.name || data.title || data.label || data.nickname || data.id || 'Unknown',
+  );
 }
 
 /**
- * Equality comparison for CDC change detection.
- * - Treats null/undefined as equal
- * - For objects with 'id', compares only the ID (association relationships)
- * - For arrays, compares sorted IDs
+ * Extract ID(s) from a value for comparison purposes.
+ * For associations, we only care about which record is linked, not the record's data.
+ * Returns a normalized string representation for comparison.
  */
-export function deepEqual(a: unknown, b: unknown): boolean {
-  // Normalize null/undefined
-  const aNorm = a === undefined ? null : a;
-  const bNorm = b === undefined ? null : b;
+function getIdFromValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
 
-  if (aNorm === bNorm) return true;
-  if (aNorm === null || bNorm === null) return false;
-
-  // Array comparison - compare sorted IDs
-  if (Array.isArray(aNorm) && Array.isArray(bNorm)) {
-    if (aNorm.length !== bNorm.length) return false;
-    const aIds = aNorm.map(extractId).sort();
-    const bIds = bNorm.map(extractId).sort();
-    return JSON.stringify(aIds) === JSON.stringify(bIds);
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (typeof v === 'object' && v && 'id' in v ? String((v as { id: unknown }).id) : String(v)))
+      .sort()
+      .join(',');
   }
 
-  // Object comparison - compare by ID only
-  const aId = extractId(aNorm);
-  const bId = extractId(bNorm);
-  if (aId !== aNorm || bId !== bNorm) {
-    // At least one was an object with id, compare IDs
-    return aId === bId;
+  if (typeof value === 'object' && value && 'id' in value) {
+    return String((value as { id: unknown }).id);
   }
 
-  // Fallback for non-association objects
-  return JSON.stringify(aNorm) === JSON.stringify(bNorm);
+  return String(value);
 }
 
 export function shouldAuditCollection(collectionName: string): boolean {
@@ -91,7 +83,6 @@ export function shouldAuditCollection(collectionName: string): boolean {
 export function getAssociationFieldNames(db: Database, collectionName: string): string[] {
   const collection = db.getCollection(collectionName);
   if (!collection) {
-    console.log('[CDC DEBUG] getAssociationFieldNames: no collection found for', collectionName);
     return [];
   }
 
@@ -102,11 +93,9 @@ export function getAssociationFieldNames(db: Database, collectionName: string): 
         associations.push(name);
       }
     }
-  } catch (err) {
-    console.log('[CDC DEBUG] getAssociationFieldNames error iterating fields:', err);
+  } catch {
     return [];
   }
-  console.log('[CDC DEBUG] getAssociationFieldNames for', collectionName, ':', associations);
   return associations;
 }
 
@@ -141,48 +130,44 @@ export function getChangedFields(
   afterData: Record<string, unknown> | null,
 ): string[] {
   if (!beforeData || !afterData) {
-    console.log('[CDC DEBUG] getChangedFields: missing beforeData or afterData');
     return [];
   }
 
   const changedFields: string[] = [];
-  const skippedSystemFields: string[] = [];
   const allKeys = new Set([...Object.keys(beforeData), ...Object.keys(afterData)]);
 
   for (const key of allKeys) {
-    const beforeValue = beforeData[key];
-    const afterValue = afterData[key];
-
     // Skip internal fields
-    if (key.startsWith('_')) {
-      continue;
-    }
+    if (key.startsWith('_')) continue;
 
     // Skip system-managed fields (createdAt, updatedAt, etc.)
-    if (SYSTEM_FIELDS.has(key)) {
-      if (!deepEqual(beforeValue, afterValue)) {
-        skippedSystemFields.push(key);
-      }
+    if (SYSTEM_FIELDS.has(key)) continue;
+
+    const before = beforeData[key];
+    const after = afterData[key];
+
+    // Normalize null/undefined
+    const beforeNorm = before === undefined ? null : before;
+    const afterNorm = after === undefined ? null : after;
+
+    // Simple equality check handles primitives and both-null
+    if (beforeNorm === afterNorm) continue;
+
+    // One is null, the other is not
+    if (beforeNorm === null || afterNorm === null) {
+      changedFields.push(key);
       continue;
     }
 
-    // Normalize: treat undefined as null for comparison
-    // This prevents false positives like "undefined !== null"
-    const normalizedBefore = beforeValue === undefined ? null : beforeValue;
-    const normalizedAfter = afterValue === undefined ? null : afterValue;
+    // For relations and complex values: compare by ID
+    const beforeId = getIdFromValue(beforeNorm);
+    const afterId = getIdFromValue(afterNorm);
 
-    // Both null/undefined = no change
-    if (normalizedBefore === null && normalizedAfter === null) {
-      continue;
-    }
-
-    // Use deep comparison for objects/arrays (handles associations properly)
-    if (!deepEqual(normalizedBefore, normalizedAfter)) {
+    if (beforeId !== afterId) {
       changedFields.push(key);
     }
   }
 
-  console.log('[CDC DEBUG] getChangedFields: changed=', changedFields, 'skippedSystem=', skippedSystemFields);
   return changedFields;
 }
 
@@ -253,10 +238,6 @@ export async function getCollectionConfig(
 /**
  * Cleanup old snapshots based on collection config.
  * Called after creating a new snapshot.
- *
- * @param db - Database instance
- * @param collectionName - Collection name
- * @param recordId - Record ID (for maxVersions cleanup)
  */
 export async function cleanupSnapshots(
   db: Database,
@@ -368,9 +349,8 @@ export async function updateFilterMetadata(
         values: updates,
       });
     }
-  } catch (err) {
+  } catch {
     // Silently ignore errors to not disrupt snapshot creation
-    console.warn(`[CDC] Failed to update filter metadata for ${collectionName}:`, err);
   }
 }
 
@@ -441,8 +421,135 @@ export async function pruneFilterMetadata(
         values: updates,
       });
     }
-  } catch (err) {
+  } catch {
     // Silently ignore errors to not disrupt cleanup
-    console.warn(`[CDC] Failed to prune filter metadata for ${collectionName}:`, err);
+  }
+}
+
+// ============================================================================
+// Hook Utilities - Shared validation and snapshot creation logic
+// ============================================================================
+
+/**
+ * Validate hook context and return collection info if the hook should proceed.
+ * Returns null if the hook should exit early.
+ */
+export async function validateHookContext(
+  model: Model,
+  options: HookOptions,
+  db: Database,
+): Promise<HookValidationResult | null> {
+  const { collection } = model.constructor as any;
+
+  if (!collection) {
+    return null;
+  }
+
+  const collectionName = collection.name;
+
+  // Skip if logging is disabled in options (e.g., during bulk imports)
+  if (options.logging === false) {
+    return null;
+  }
+
+  // Check our exclusion list (system collections, cdc_*, ui*, etc.)
+  if (!shouldAuditCollection(collectionName)) {
+    return null;
+  }
+
+  // Check cdc_config for per-collection disable
+  const enabled = await isCollectionEnabled(db, collectionName);
+  if (!enabled) {
+    return null;
+  }
+
+  const recordId = getPrimaryKeyValue(model);
+  if (!recordId) {
+    return null;
+  }
+
+  return { collectionName, recordId };
+}
+
+/**
+ * Get CDC context from hook options (stored by before hooks)
+ */
+export function getCdcContext(options: HookOptions): CdcContext | null {
+  const cdc = options.context?.__cdc as CdcContext | undefined;
+  if (!cdc || !cdc.beforeData || !cdc.recordId || !cdc.collectionName) {
+    return null;
+  }
+  return cdc;
+}
+
+/**
+ * Set CDC context in hook options (for before hooks to store data for after hooks)
+ */
+export function setCdcContext(options: HookOptions, context: CdcContext): void {
+  options.context = options.context || {};
+  options.context.__cdc = context;
+}
+
+/**
+ * Create a CDC snapshot with auth info, versioning, and cleanup
+ */
+export async function createCdcSnapshot(
+  db: Database,
+  options: HookOptions,
+  params: CreateSnapshotParams,
+  logger?: Logger,
+): Promise<void> {
+  try {
+    const { collectionName, recordId, operation, beforeData, afterData, changedFields } = params;
+
+    const version = await getNextVersion(db, collectionName, recordId);
+    const authInfo = await extractAuthInfo(db, options);
+    const now = new Date();
+
+    const snapshotRepo = db.getRepository('cdc_snapshots');
+    await snapshotRepo.create({
+      values: {
+        collectionName,
+        recordId,
+        operation,
+        beforeData,
+        afterData,
+        changedFields,
+        userId: authInfo.userId,
+        isApiKey: authInfo.isApiKey,
+        createdAt: now,
+        updatedAt: now,
+        version,
+      },
+      hooks: false, // Prevent CDC hooks from firing on snapshot creation
+    });
+
+    // Update filter metadata (capturedRecords and capturedFields)
+    const recordName = getRecordName(afterData || beforeData);
+    await updateFilterMetadata(db, collectionName, recordId, recordName, changedFields);
+
+    // Cleanup old snapshots based on retention/maxVersions config
+    await cleanupSnapshots(db, collectionName, recordId);
+  } catch (err) {
+    if (logger) {
+      logger.error(`[CDC] createCdcSnapshot error for ${params.collectionName}:`, err);
+    }
+  }
+}
+
+/**
+ * Execute a callback after transaction commit (if in transaction) or immediately
+ */
+export function executeAfterTransaction(
+  options: HookOptions,
+  callback: () => Promise<void>,
+): void {
+  if (options.transaction) {
+    options.transaction.afterCommit(callback);
+  } else {
+    // Execute async but don't await - let it run in background
+    callback().catch(() => {
+      // Error is handled inside callback
+    });
   }
 }

@@ -1,6 +1,15 @@
 import { Context, Next } from '@nocobase/actions';
-import { buildCascadePreview, PreviewItem } from '../utils/cascade-helpers';
 import { SchemaValidationError, validateRollbackSchema } from '../utils/schema-validator';
+import { getRecordName } from '../utils/snapshot-helpers';
+
+interface RollbackItem {
+  collection: string;
+  recordId: string;
+  recordName: string;
+  action: 'restore' | 'update' | 'delete';
+  currentData: null;
+  rollbackData: Record<string, unknown> | null;
+}
 
 /**
  * POST /api/cdc:rollback
@@ -11,7 +20,6 @@ import { SchemaValidationError, validateRollbackSchema } from '../utils/schema-v
  *   - recordId: Record ID
  *   - version: Version number to rollback to (option 2)
  *
- *   - cascade: boolean (optional, default: false) - whether to include related records
  *   - confirmed: boolean (required: true) - must be true to execute
  */
 export async function rollback(ctx: Context, next: Next) {
@@ -20,11 +28,10 @@ export async function rollback(ctx: Context, next: Next) {
     collection?: string;
     recordId?: string;
     version?: number;
-    cascade?: boolean;
     confirmed?: boolean;
   };
 
-  const { snapshotId, collection, recordId, version, cascade = false, confirmed } = body;
+  const { snapshotId, collection, recordId, version, confirmed } = body;
 
   if (confirmed !== true) {
     ctx.throw(400, 'Rollback requires confirmed: true. Use preview first to review changes.');
@@ -58,7 +65,7 @@ export async function rollback(ctx: Context, next: Next) {
   const operation = targetSnapshot.get('operation') as string;
 
   // Build list of items to rollback
-  const itemsToRollback: PreviewItem[] = [];
+  const itemsToRollback: RollbackItem[] = [];
   const rollbackData = targetSnapshot.get('beforeData') as Record<string, unknown> | null;
 
   // Determine action for main record
@@ -82,18 +89,6 @@ export async function rollback(ctx: Context, next: Next) {
     rollbackData: action === 'delete' ? null : rollbackData,
   });
 
-  // If cascade, add related records
-  if (cascade && rollbackData) {
-    const cascadeItems = await buildCascadePreview(
-      ctx.db,
-      collectionName,
-      targetRecordId,
-      targetSnapshot.get('createdAt') as Date,
-      rollbackData,
-    );
-    itemsToRollback.push(...cascadeItems);
-  }
-
   // Validate schema for all items before execution (defense in depth)
   const allSchemaErrors: SchemaValidationError[] = [];
   for (const item of itemsToRollback) {
@@ -112,7 +107,6 @@ export async function rollback(ctx: Context, next: Next) {
   // Execute rollback in transaction
   const transaction = await ctx.db.sequelize.transaction();
   const rolledBack: Array<{ collection: string; recordId: string; name: string; action: string }> = [];
-  const newSnapshotIds: number[] = [];
 
   try {
     for (const item of itemsToRollback) {
@@ -174,11 +168,4 @@ export async function rollback(ctx: Context, next: Next) {
   }
 
   await next();
-}
-
-function getRecordName(data: Record<string, unknown> | null): string {
-  if (!data) return 'Unknown';
-  return String(
-    data.name || data.title || data.label || data.nickname || data.id || 'Unknown',
-  );
 }

@@ -86,12 +86,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   };
 
   const isChanged = (key: string): boolean => {
-    if (changedFields.length > 0) {
-      return changedFields.includes(key);
-    }
-    const before = beforeData?.[key];
-    const after = afterData?.[key];
-    return JSON.stringify(before) !== JSON.stringify(after);
+    return changedFields.includes(key);
   };
 
   const getChangeType = (key: string): 'added' | 'removed' | 'modified' | 'unchanged' => {

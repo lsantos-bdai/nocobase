@@ -7,14 +7,9 @@ import {
   RelationNotFoundError,
   ValidationError,
   AssetNotFoundError,
+  validateAssetPayloadMap,
+  AssetPayload,
 } from '../utils';
-
-interface AssetPayload {
-  platform: string;
-  collection: string;
-  collection_title: string;
-  data: Record<string, unknown>;
-}
 
 interface UpdateResult {
   updated: string[];
@@ -32,9 +27,9 @@ interface UpdateError {
 }
 
 /**
- * Update action - updates assets using the same human-readable format as get.
+ * Update action - updates assets using the unified AssetPayloadMap format.
  *
- * Request body: Same structure as get response
+ * Request body: AssetPayloadMap
  * {
  *   "Station 1": {
  *     "platform": "models",
@@ -49,24 +44,25 @@ interface UpdateError {
  *   }
  * }
  *
- * Query parameters:
- * - platform: Platform slug (required)
+ * The platform is specified per-asset in the payload (no query parameter).
+ * Supports multi-platform operations in a single request.
  */
 export async function update(ctx: Context, next: Next) {
-  const { platform } = ctx.request.query as { platform?: string };
+  const body = ctx.request.body;
 
-  if (!platform) {
-    ctx.throw(400, 'platform query parameter is required');
+  // Validate input using unified schema
+  const validation = validateAssetPayloadMap(body, { requireId: true });
+  if (!validation.valid) {
+    ctx.throw(400, validation.error);
   }
 
-  const body = ctx.request.body as Record<string, AssetPayload>;
-
-  if (!body || typeof body !== 'object' || Object.keys(body).length === 0) {
-    ctx.throw(400, 'Request body must be a non-empty object with asset payloads');
+  // Group assets by platform for efficient processing
+  const byPlatform = new Map<string, Array<[string, AssetPayload]>>();
+  for (const [assetName, payload] of Object.entries(validation.assets)) {
+    const group = byPlatform.get(payload.platform) || [];
+    group.push([assetName, payload]);
+    byPlatform.set(payload.platform, group);
   }
-
-  // Get platform
-  const platformRecord = await getPlatformBySlugOrThrow(ctx, platform);
 
   const updatedAssets: string[] = [];
 
@@ -74,75 +70,75 @@ export async function update(ctx: Context, next: Next) {
   const transaction = await ctx.db.sequelize.transaction();
 
   try {
-    for (const [assetName, payload] of Object.entries(body)) {
-      const { collection: collectionName, data } = payload;
+    // Process each platform group
+    for (const [platformSlug, assets] of byPlatform) {
+      const platformRecord = await getPlatformBySlugOrThrow(ctx, platformSlug);
 
-      // Validate data has an id
-      if (data.id === undefined) {
-        throw new ValidationError([`Asset '${assetName}' is missing required 'id' field`]);
-      }
+      for (const [assetName, payload] of assets) {
+        const { collection: collectionName, data } = payload;
 
-      // Verify the asset exists in the platform's lookup table
-      const lookupResult = await lookupAssetIdByName(ctx.db, platformRecord, assetName);
-      if (!lookupResult) {
-        throw new AssetNotFoundError(assetName);
-      }
-
-      // Verify collection matches
-      if (lookupResult.collection !== collectionName) {
-        throw new ValidationError([
-          `Asset '${assetName}' belongs to collection '${lookupResult.collection}', not '${collectionName}'`,
-        ]);
-      }
-
-      // Get the collection
-      const collection = ctx.db.getCollection(collectionName);
-      if (!collection) {
-        throw new ValidationError([`Collection '${collectionName}' not found`]);
-      }
-
-      // Validate field values (types, enums, etc.) using NocoBase Interface system
-      const valueErrors = await validateFieldValues(collection, data, ctx.db);
-      if (valueErrors.length > 0) {
-        throw new ValidationError(valueErrors);
-      }
-
-      // Convert human-readable data to internal format
-      let internalData: Record<string, unknown>;
-      try {
-        internalData = await unresolveData(collection, data, platformRecord, ctx.db);
-      } catch (err) {
-        if (err instanceof RelationNotFoundError) {
-          const errorResponse: UpdateError = {
-            error: 'Relation not found',
-            details: {
-              asset: assetName,
-              field: err.field,
-              value: err.value,
-              message: err.message,
-            },
-          };
-          ctx.status = 422;
-          ctx.body = errorResponse;
-          ctx.withoutDataWrapping = true;
-          await transaction.rollback();
-          return next();
+        // Verify the asset exists in the platform's lookup table
+        const lookupResult = await lookupAssetIdByName(ctx.db, platformRecord, assetName);
+        if (!lookupResult) {
+          throw new AssetNotFoundError(assetName);
         }
-        throw err;
+
+        // Verify collection matches
+        if (lookupResult.collection !== collectionName) {
+          throw new ValidationError([
+            `Asset '${assetName}' belongs to collection '${lookupResult.collection}', not '${collectionName}'`,
+          ]);
+        }
+
+        // Get the collection
+        const collection = ctx.db.getCollection(collectionName);
+        if (!collection) {
+          throw new ValidationError([`Collection '${collectionName}' not found`]);
+        }
+
+        // Validate field values (types, enums, etc.) using NocoBase Interface system
+        const valueErrors = await validateFieldValues(collection, data, ctx.db);
+        if (valueErrors.length > 0) {
+          throw new ValidationError(valueErrors);
+        }
+
+        // Convert human-readable data to internal format
+        let internalData: Record<string, unknown>;
+        try {
+          internalData = await unresolveData(collection, data, platformRecord, ctx.db);
+        } catch (err) {
+          if (err instanceof RelationNotFoundError) {
+            const errorResponse: UpdateError = {
+              error: 'Relation not found',
+              details: {
+                asset: assetName,
+                field: err.field,
+                value: err.value,
+                message: err.message,
+              },
+            };
+            ctx.status = 422;
+            ctx.body = errorResponse;
+            ctx.withoutDataWrapping = true;
+            await transaction.rollback();
+            return next();
+          }
+          throw err;
+        }
+
+        // Remove 'id' from update values (it's for identifying, not updating)
+        const { id, ...updateValues } = internalData;
+
+        // Perform the update
+        await ctx.db.getRepository(collectionName).update({
+          filterByTk: data.id,
+          values: updateValues,
+          transaction,
+          context: ctx, // Pass Koa context so hooks can access currentUser
+        });
+
+        updatedAssets.push(assetName);
       }
-
-      // Remove 'id' from update values (it's for identifying, not updating)
-      const { id, ...updateValues } = internalData;
-
-      // Perform the update
-      await ctx.db.getRepository(collectionName).update({
-        filterByTk: data.id,
-        values: updateValues,
-        transaction,
-        context: ctx, // Pass Koa context so hooks can access currentUser
-      });
-
-      updatedAssets.push(assetName);
     }
 
     // Commit the transaction

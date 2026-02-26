@@ -1,10 +1,12 @@
 import { Context, Next } from '@nocobase/actions';
-import { getPlatformBySlugOrThrow, resolveCollectionName, lookupAssetIdByName, AssetNotFoundError } from '../utils';
-
-interface DeletePayload {
-  assets: string[];
-  collection?: string;
-}
+import {
+  getPlatformBySlugOrThrow,
+  lookupAssetIdByName,
+  AssetNotFoundError,
+  ValidationError,
+  validateAssetPayloadMap,
+  AssetPayload,
+} from '../utils';
 
 interface DeleteResult {
   deleted: string[];
@@ -20,52 +22,48 @@ interface DeleteError {
 }
 
 /**
- * Delete action - deletes assets by name.
+ * Delete action - deletes assets using the unified AssetPayloadMap format.
  *
- * Request body:
+ * Request body: AssetPayloadMap
  * {
- *   "assets": ["Station 1", "IRS026"]
+ *   "Station 1": {
+ *     "platform": "models",
+ *     "collection": "t_98x374ie2j7",
+ *     "data": {
+ *       "id": 1,
+ *       "name": "Station 1"
+ *     }
+ *   },
+ *   "IRS026": {
+ *     "platform": "inventory",
+ *     "collection": "t_abc123",
+ *     "data": {
+ *       "id": 42,
+ *       "name": "IRS026"
+ *     }
+ *   }
  * }
  *
- * Or with collection filter:
- * {
- *   "collection": "ArmStation",
- *   "assets": ["Station 1"]
- * }
- *
- * Query parameters:
- * - platform: Platform slug (required)
+ * The platform is specified per-asset in the payload (no query parameter).
+ * Only platform, collection, and data.id (or data.name for lookup) are required.
+ * Supports multi-platform operations in a single request.
  */
 export async function deleteAssets(ctx: Context, next: Next) {
-  const { platform } = ctx.request.query as { platform?: string };
+  const body = ctx.request.body;
 
-  if (!platform) {
-    ctx.throw(400, 'platform query parameter is required');
+  // Validate input using unified schema
+  // Note: We allow either id OR name for deletion (name is used for lookup if no id)
+  const validation = validateAssetPayloadMap(body, { requireId: false });
+  if (!validation.valid) {
+    ctx.throw(400, validation.error);
   }
 
-  const body = ctx.request.body as DeletePayload;
-
-  if (!body || typeof body !== 'object') {
-    ctx.throw(400, 'Request body must be an object with assets array');
-  }
-
-  const { assets, collection: collectionIdentifier } = body;
-
-  if (!assets || !Array.isArray(assets) || assets.length === 0) {
-    ctx.throw(400, 'assets field must be a non-empty array');
-  }
-
-  // Get platform
-  const platformRecord = await getPlatformBySlugOrThrow(ctx, platform);
-  const registeredCollections: string[] = platformRecord.registeredCollections || [];
-
-  // Resolve collection name if provided
-  let collectionFilter: string | null = null;
-  if (collectionIdentifier) {
-    collectionFilter = await resolveCollectionName(ctx, collectionIdentifier, registeredCollections);
-    if (!collectionFilter) {
-      ctx.throw(404, `Collection '${collectionIdentifier}' not found in platform '${platform}'`);
-    }
+  // Group assets by platform for efficient processing
+  const byPlatform = new Map<string, Array<[string, AssetPayload]>>();
+  for (const [assetName, payload] of Object.entries(validation.assets)) {
+    const group = byPlatform.get(payload.platform) || [];
+    group.push([assetName, payload]);
+    byPlatform.set(payload.platform, group);
   }
 
   const deletedAssets: string[] = [];
@@ -74,26 +72,43 @@ export async function deleteAssets(ctx: Context, next: Next) {
   const transaction = await ctx.db.sequelize.transaction();
 
   try {
-    // First, verify all assets exist and collect their info
-    const assetInfos: { name: string; collection: string; assetId: string }[] = [];
+    // First pass: verify all assets exist and collect their info
+    const assetInfos: Array<{
+      name: string;
+      collection: string;
+      assetId: string | number;
+      platformSlug: string;
+    }> = [];
 
-    for (const assetName of assets) {
-      const lookupResult = await lookupAssetIdByName(ctx.db, platformRecord, assetName);
+    for (const [platformSlug, assets] of byPlatform) {
+      const platformRecord = await getPlatformBySlugOrThrow(ctx, platformSlug);
 
-      if (!lookupResult) {
-        throw new AssetNotFoundError(assetName);
+      for (const [assetName, payload] of assets) {
+        const { collection: collectionName, data } = payload;
+
+        // Verify the asset exists in the platform's lookup table
+        const lookupResult = await lookupAssetIdByName(ctx.db, platformRecord, assetName);
+        if (!lookupResult) {
+          throw new AssetNotFoundError(assetName);
+        }
+
+        // Verify collection matches if provided
+        if (lookupResult.collection !== collectionName) {
+          throw new ValidationError([
+            `Asset '${assetName}' belongs to collection '${lookupResult.collection}', not '${collectionName}'`,
+          ]);
+        }
+
+        // Use the ID from data if provided, otherwise use the looked-up ID
+        const assetId = data.id !== undefined ? data.id : lookupResult.assetId;
+
+        assetInfos.push({
+          name: assetName,
+          collection: collectionName,
+          assetId,
+          platformSlug,
+        });
       }
-
-      // If collection filter is specified, verify the asset belongs to that collection
-      if (collectionFilter && lookupResult.collection !== collectionFilter) {
-        throw new AssetNotFoundError(assetName);
-      }
-
-      assetInfos.push({
-        name: assetName,
-        collection: lookupResult.collection,
-        assetId: lookupResult.assetId,
-      });
     }
 
     // Group by collection for efficient deletion
@@ -108,7 +123,8 @@ export async function deleteAssets(ctx: Context, next: Next) {
     // Delete from each collection
     for (const [collectionName, infos] of byCollection) {
       const assetIds = infos.map((i) => {
-        const numericId = parseInt(i.assetId, 10);
+        if (typeof i.assetId === 'number') return i.assetId;
+        const numericId = parseInt(String(i.assetId), 10);
         return isNaN(numericId) ? i.assetId : numericId;
       });
 
@@ -146,6 +162,19 @@ export async function deleteAssets(ctx: Context, next: Next) {
       };
       ctx.status = 404;
       ctx.body = errorResponse;
+      ctx.withoutDataWrapping = true;
+      return next();
+    }
+
+    if (err instanceof ValidationError) {
+      ctx.status = 422;
+      ctx.body = {
+        error: 'Validation failed',
+        details: {
+          asset: '',
+          message: err.errors.join(', '),
+        },
+      };
       ctx.withoutDataWrapping = true;
       return next();
     }

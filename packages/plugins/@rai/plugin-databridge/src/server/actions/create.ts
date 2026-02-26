@@ -1,18 +1,14 @@
 import { Context, Next } from '@nocobase/actions';
 import {
   getPlatformBySlugOrThrow,
-  resolveCollectionName,
   unresolveData,
   validateRequiredFields,
   validateFieldValues,
   RelationNotFoundError,
   ValidationError,
+  validateAssetPayloadMap,
+  AssetPayload,
 } from '../utils';
-
-interface CreatePayload {
-  collection: string;
-  data: Record<string, unknown> | Record<string, unknown>[];
-}
 
 interface CreateResult {
   created: string[];
@@ -30,76 +26,50 @@ interface CreateError {
 }
 
 /**
- * Create action - creates new assets using human-readable format.
+ * Create action - creates new assets using the unified AssetPayloadMap format.
  *
- * Request body:
+ * Request body: AssetPayloadMap
  * {
- *   "collection": "ArmStation",
- *   "data": {
- *     "name": "Station 2",
- *     "left_gpu": "WS63",
- *     "right_gpu": "WS64",
- *     "table_type": "Table"
+ *   "Station 2": {
+ *     "platform": "models",
+ *     "collection": "t_98x374ie2j7",
+ *     "collection_title": "ArmStation",
+ *     "data": {
+ *       "name": "Station 2",
+ *       "left_gpu": "WS63",
+ *       "right_gpu": "WS64",
+ *       "table_type": "Table"
+ *     }
+ *   },
+ *   "IRS099": {
+ *     "platform": "models",
+ *     "collection": "t_abc123",
+ *     "data": {
+ *       "name": "IRS099",
+ *       "serial_number": "99999"
+ *     }
  *   }
  * }
  *
- * Or batch create:
- * {
- *   "collection": "ArmStation",
- *   "data": [
- *     { "name": "Station 2", "left_gpu": "WS63" },
- *     { "name": "Station 3", "left_gpu": "WS64" }
- *   ]
- * }
- *
- * Query parameters:
- * - platform: Platform slug (required)
+ * The platform is specified per-asset in the payload (no query parameter).
+ * The id field in data is ignored (auto-generated).
+ * Supports multi-platform operations in a single request.
  */
 export async function create(ctx: Context, next: Next) {
-  const { platform } = ctx.request.query as { platform?: string };
+  const body = ctx.request.body;
 
-  if (!platform) {
-    ctx.throw(400, 'platform query parameter is required');
+  // Validate input using unified schema (id not required for create)
+  const validation = validateAssetPayloadMap(body, { requireId: false });
+  if (!validation.valid) {
+    ctx.throw(400, validation.error);
   }
 
-  const body = ctx.request.body as CreatePayload;
-
-  if (!body || typeof body !== 'object') {
-    ctx.throw(400, 'Request body must be an object with collection and data fields');
-  }
-
-  const { collection: collectionIdentifier, data } = body;
-
-  if (!collectionIdentifier) {
-    ctx.throw(400, 'collection field is required');
-  }
-
-  if (!data) {
-    ctx.throw(400, 'data field is required');
-  }
-
-  // Get platform
-  const platformRecord = await getPlatformBySlugOrThrow(ctx, platform);
-  const registeredCollections: string[] = platformRecord.registeredCollections || [];
-
-  // Resolve collection name (accepts title or internal name)
-  const collectionName = await resolveCollectionName(ctx, collectionIdentifier, registeredCollections);
-
-  if (!collectionName) {
-    ctx.throw(404, `Collection '${collectionIdentifier}' not found in platform '${platform}'`);
-  }
-
-  // Get the collection
-  const collection = ctx.db.getCollection(collectionName);
-  if (!collection) {
-    ctx.throw(404, `Collection '${collectionName}' not found`);
-  }
-
-  // Normalize data to array for uniform processing
-  const dataArray = Array.isArray(data) ? data : [data];
-
-  if (dataArray.length === 0) {
-    ctx.throw(400, 'data must contain at least one record');
+  // Group assets by platform for efficient processing
+  const byPlatform = new Map<string, Array<[string, AssetPayload]>>();
+  for (const [assetName, payload] of Object.entries(validation.assets)) {
+    const group = byPlatform.get(payload.platform) || [];
+    group.push([assetName, payload]);
+    byPlatform.set(payload.platform, group);
   }
 
   const createdAssets: string[] = [];
@@ -108,81 +78,100 @@ export async function create(ctx: Context, next: Next) {
   const transaction = await ctx.db.sequelize.transaction();
 
   try {
-    for (const itemData of dataArray) {
-      // Validate name field is present
-      if (!itemData.name || typeof itemData.name !== 'string') {
-        throw new ValidationError(['name field is required and must be a string']);
-      }
+    // Process each platform group
+    for (const [platformSlug, assets] of byPlatform) {
+      const platformRecord = await getPlatformBySlugOrThrow(ctx, platformSlug);
 
-      const assetName = itemData.name as string;
+      for (const [assetName, payload] of assets) {
+        const { collection: collectionName, data } = payload;
 
-      // Validate required fields
-      const requiredErrors = validateRequiredFields(collection, itemData, true);
+        // Validate name field matches the asset key
+        if (!data.name || typeof data.name !== 'string') {
+          throw new ValidationError([`Asset '${assetName}': name field is required in data`]);
+        }
 
-      // Validate field values (types, enums, etc.) using NocoBase Interface system
-      const valueErrors = await validateFieldValues(collection, itemData, ctx.db);
+        // Verify the collection is registered in this platform
+        const registeredCollections: string[] = platformRecord.registeredCollections || [];
+        if (!registeredCollections.includes(collectionName)) {
+          throw new ValidationError([
+            `Collection '${collectionName}' is not registered in platform '${platformSlug}'`,
+          ]);
+        }
 
-      const allErrors = [...requiredErrors, ...valueErrors];
-      if (allErrors.length > 0) {
-        throw new ValidationError(allErrors);
-      }
+        // Get the collection
+        const collection = ctx.db.getCollection(collectionName);
+        if (!collection) {
+          throw new ValidationError([`Collection '${collectionName}' not found`]);
+        }
 
-      // Check for duplicate name in platform lookup table
-      const existingLookup = await ctx.db.getRepository(platformRecord.collectionName).findOne({
-        filter: { name: assetName },
-        transaction,
-      });
+        // Validate required fields
+        const requiredErrors = validateRequiredFields(collection, data, true);
 
-      if (existingLookup) {
-        const errorResponse: CreateError = {
-          error: 'Duplicate name',
-          details: {
-            asset: assetName,
-            message: `Asset '${assetName}' already exists in platform`,
-          },
-        };
-        ctx.status = 409;
-        ctx.body = errorResponse;
-        ctx.withoutDataWrapping = true;
-        await transaction.rollback();
-        return next();
-      }
+        // Validate field values (types, enums, etc.) using NocoBase Interface system
+        const valueErrors = await validateFieldValues(collection, data, ctx.db);
 
-      // Convert human-readable data to internal format
-      let internalData: Record<string, unknown>;
-      try {
-        internalData = await unresolveData(collection, itemData, platformRecord, ctx.db);
-      } catch (err) {
-        if (err instanceof RelationNotFoundError) {
+        const allErrors = [...requiredErrors, ...valueErrors];
+        if (allErrors.length > 0) {
+          throw new ValidationError(allErrors);
+        }
+
+        // Check for duplicate name in platform lookup table
+        const existingLookup = await ctx.db.getRepository(platformRecord.collectionName).findOne({
+          filter: { name: data.name },
+          transaction,
+        });
+
+        if (existingLookup) {
           const errorResponse: CreateError = {
-            error: 'Relation not found',
+            error: 'Duplicate name',
             details: {
               asset: assetName,
-              field: err.field,
-              value: err.value,
-              message: err.message,
+              message: `Asset '${data.name}' already exists in platform`,
             },
           };
-          ctx.status = 422;
+          ctx.status = 409;
           ctx.body = errorResponse;
           ctx.withoutDataWrapping = true;
           await transaction.rollback();
           return next();
         }
-        throw err;
+
+        // Convert human-readable data to internal format
+        let internalData: Record<string, unknown>;
+        try {
+          internalData = await unresolveData(collection, data, platformRecord, ctx.db);
+        } catch (err) {
+          if (err instanceof RelationNotFoundError) {
+            const errorResponse: CreateError = {
+              error: 'Relation not found',
+              details: {
+                asset: assetName,
+                field: err.field,
+                value: err.value,
+                message: err.message,
+              },
+            };
+            ctx.status = 422;
+            ctx.body = errorResponse;
+            ctx.withoutDataWrapping = true;
+            await transaction.rollback();
+            return next();
+          }
+          throw err;
+        }
+
+        // Remove id if present (auto-generated)
+        delete internalData.id;
+
+        // Perform the create
+        await ctx.db.getRepository(collectionName).create({
+          values: internalData,
+          transaction,
+          context: ctx, // Pass Koa context so hooks can access currentUser
+        });
+
+        createdAssets.push(assetName);
       }
-
-      // Remove id if present (auto-generated)
-      delete internalData.id;
-
-      // Perform the create
-      await ctx.db.getRepository(collectionName).create({
-        values: internalData,
-        transaction,
-        context: ctx, // Pass Koa context so hooks can access currentUser
-      });
-
-      createdAssets.push(assetName);
     }
 
     // Commit the transaction

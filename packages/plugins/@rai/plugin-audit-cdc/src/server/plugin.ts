@@ -7,7 +7,7 @@ import {
   createAfterDestroyHook,
   createAfterUpdateWithAssociationsHook,
 } from './hooks';
-import { history, snapshot, preview, rollback, configure, listConfig, listSnapshots, getFilterOptions } from './actions';
+import { history, snapshot, preview, rollback, configure, listConfig, listSnapshots, getFilterOptions, enableAll } from './actions';
 
 export class PluginAuditCdcServer extends Plugin {
   private hooksRegistered = false;
@@ -36,6 +36,7 @@ export class PluginAuditCdcServer extends Plugin {
         listConfig,
         listSnapshots,
         getFilterOptions,
+        enableAll,
       },
     });
 
@@ -50,6 +51,7 @@ export class PluginAuditCdcServer extends Plugin {
         'cdc:configure',
         'cdc:listConfig',
         'cdc:listSnapshots',
+        'cdc:enableAll',
       ],
     });
 
@@ -118,7 +120,6 @@ export class PluginAuditCdcServer extends Plugin {
     });
 
     this.hooksRegistered = true;
-    console.log('[CDC DEBUG] Registered global hooks for CDC plugin');
   }
 
   private registerCollectionAssociationHook(collectionName: string) {
@@ -133,7 +134,6 @@ export class PluginAuditCdcServer extends Plugin {
     const eventName = `${collectionName}.afterUpdateWithAssociations`;
     this.db.on(eventName, this.afterUpdateWithAssociationsHandler);
     this.registeredCollections.add(collectionName);
-    console.log('[CDC DEBUG] Registered afterUpdateWithAssociations hook for:', collectionName);
   }
 }
 

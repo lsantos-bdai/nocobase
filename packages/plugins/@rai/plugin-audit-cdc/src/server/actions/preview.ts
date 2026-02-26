@@ -1,11 +1,17 @@
 import { Context, Next } from '@nocobase/actions';
-import { buildCascadePreview, PreviewItem } from '../utils/cascade-helpers';
-import { validateRollbackSchema } from '../utils/schema-validator';
+import { SchemaValidationError, validateRollbackSchema } from '../utils/schema-validator';
 import { resolveFieldMetadata } from './configure';
-import { getAssociationFieldNames } from '../utils/snapshot-helpers';
+import { getAssociationFieldNames, getRecordName, getChangedFields, SYSTEM_FIELDS_ARRAY } from '../utils/snapshot-helpers';
 
-// System fields that are auto-managed and should not appear in rollback preview
-const SYSTEM_FIELDS = ['createdAt', 'updatedAt', 'deletedAt', 'createdById', 'updatedById'];
+interface PreviewItem {
+  collection: string;
+  recordId: string;
+  recordName: string;
+  action: 'restore' | 'update' | 'delete';
+  currentData: Record<string, unknown> | null;
+  rollbackData: Record<string, unknown> | null;
+  schemaErrors?: SchemaValidationError[];
+}
 
 /**
  * Remove system-managed fields from data object for cleaner preview
@@ -13,7 +19,7 @@ const SYSTEM_FIELDS = ['createdAt', 'updatedAt', 'deletedAt', 'createdById', 'up
 function stripSystemFields(data: Record<string, unknown> | null): Record<string, unknown> | null {
   if (!data) return null;
   const result = { ...data };
-  for (const field of SYSTEM_FIELDS) {
+  for (const field of SYSTEM_FIELDS_ARRAY) {
     delete result[field];
   }
   return result;
@@ -27,8 +33,6 @@ function stripSystemFields(data: Record<string, unknown> | null): Record<string,
  *   - collection: Collection name
  *   - recordId: Record ID
  *   - version: Version number to rollback to (option 2)
- *
- *   - cascade: boolean (optional, default: false) - whether to include related records
  */
 export async function preview(ctx: Context, next: Next) {
   const body = ctx.request.body as {
@@ -36,10 +40,9 @@ export async function preview(ctx: Context, next: Next) {
     collection?: string;
     recordId?: string;
     version?: number;
-    cascade?: boolean;
   };
 
-  const { snapshotId, collection, recordId, version, cascade = false } = body;
+  const { snapshotId, collection, recordId, version } = body;
 
   const snapshotRepo = ctx.db.getRepository('cdc_snapshots');
   let targetSnapshot;
@@ -103,40 +106,38 @@ export async function preview(ctx: Context, next: Next) {
   // Validate schema for the main rollback item
   const mainSchemaValidation = validateRollbackSchema(ctx.db, collectionName, rollbackData);
 
+  // Compute changed fields between current state and rollback data
+  const currentDataPlain = stripSystemFields(currentRecord ? currentRecord.get({ plain: true }) : null);
+  const rollbackDataStripped = stripSystemFields(rollbackData);
+  const changedFields = getChangedFields(currentDataPlain, rollbackDataStripped);
+
   const previewItems: PreviewItem[] = [
     {
       collection: collectionName,
       recordId: targetRecordId,
       recordName: getRecordName(snapshotData as Record<string, unknown>),
       action,
-      currentData: stripSystemFields(currentRecord ? currentRecord.get({ plain: true }) : null),
-      rollbackData: stripSystemFields(rollbackData),
+      currentData: currentDataPlain,
+      rollbackData: rollbackDataStripped,
       schemaErrors: mainSchemaValidation.errors.length > 0 ? mainSchemaValidation.errors : undefined,
     },
   ];
-
-  // If cascade is requested, find related records to rollback
-  if (cascade && rollbackData) {
-    const cascadeItems = await buildCascadePreview(
-      ctx.db,
-      collectionName,
-      targetRecordId,
-      targetSnapshot.get('createdAt') as Date,
-      rollbackData,
-    );
-    previewItems.push(...cascadeItems);
-  }
 
   // Check if any items have schema errors
   const hasSchemaErrors = previewItems.some(
     (item) => item.schemaErrors && item.schemaErrors.length > 0,
   );
 
+  // Determine if rollback can proceed (no schema errors)
+  const canRollback = !hasSchemaErrors;
+
   // Resolve field metadata for human-readable labels and related values
   const metadata = await resolveFieldMetadata(ctx.db, collectionName, [targetSnapshot]);
 
   ctx.body = {
+    canRollback,
     preview: previewItems,
+    changedFields,
     affectedRecords: previewItems.length,
     hasSchemaErrors,
     fieldLabels: metadata.fieldLabels,
@@ -150,11 +151,4 @@ export async function preview(ctx: Context, next: Next) {
   };
 
   await next();
-}
-
-function getRecordName(data: Record<string, unknown> | null): string {
-  if (!data) return 'Unknown';
-  return String(
-    data.name || data.title || data.label || data.nickname || data.id || 'Unknown',
-  );
 }

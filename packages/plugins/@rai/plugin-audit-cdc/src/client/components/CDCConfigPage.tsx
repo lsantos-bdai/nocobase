@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Switch, Spin, message, Typography, Space, Statistic, Row, Col, Button, Tabs } from 'antd';
-import { EyeOutlined, EditOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Card, Table, Switch, Spin, message, Typography, Space, Statistic, Row, Col, Button, Tabs, Modal } from 'antd';
+import { EyeOutlined, EditOutlined, SettingOutlined, UnorderedListOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useAPIClient } from '@nocobase/client';
 import { SnapshotDrawer } from './SnapshotDrawer';
 import { AllActivityPanel } from './AllActivityPanel';
@@ -36,6 +36,7 @@ export const CDCConfigPage: React.FC = () => {
     title: string;
   } | null>(null);
   const [editingCollection, setEditingCollection] = useState<CollectionConfig | null>(null);
+  const [enablingAll, setEnablingAll] = useState(false);
 
   const fetchConfigs = async () => {
     setLoading(true);
@@ -110,6 +111,29 @@ export const CDCConfigPage: React.FC = () => {
       message.error(`Failed to update: ${err.message || 'Unknown error'}`);
       throw err;
     }
+  };
+
+  const handleEnableAll = () => {
+    Modal.confirm({
+      title: 'Enable All Collections',
+      content: 'This will enable auditing for all collections. Continue?',
+      onOk: async () => {
+        setEnablingAll(true);
+        try {
+          const response = await api.request({
+            url: 'cdc:enableAll',
+            method: 'POST',
+          });
+          const data = response?.data;
+          message.success(data?.message || 'All collections enabled');
+          fetchConfigs();
+        } catch (err: any) {
+          message.error(`Failed to enable all collections: ${err.message || 'Unknown error'}`);
+        } finally {
+          setEnablingAll(false);
+        }
+      },
+    });
   };
 
   const columns = [
@@ -272,6 +296,17 @@ export const CDCConfigPage: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      <div style={{ marginBottom: '16px' }}>
+        <Button
+          type="primary"
+          icon={<CheckCircleOutlined />}
+          onClick={handleEnableAll}
+          loading={enablingAll}
+        >
+          Enable All
+        </Button>
+      </div>
 
       <Tabs defaultActiveKey="settings" items={tabItems} />
 

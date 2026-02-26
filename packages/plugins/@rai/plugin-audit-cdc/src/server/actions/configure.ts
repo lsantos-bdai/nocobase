@@ -1,5 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
-import { shouldAuditCollection } from '../utils/snapshot-helpers';
+import { shouldAuditCollection, getRecordName } from '../utils/snapshot-helpers';
 
 /**
  * POST /api/cdc:configure
@@ -326,15 +326,10 @@ async function getCollectionTitles(db: any): Promise<Record<string, string>> {
     for (const coll of collections) {
       titles[coll.name as string] = (coll.title as string) || (coll.name as string);
     }
-  } catch (err) {
-    console.warn('Failed to fetch collection titles:', err);
+  } catch {
+    // Silently ignore errors
   }
   return titles;
-}
-
-function getRecordName(data: Record<string, unknown> | null): string {
-  if (!data) return 'Unknown';
-  return String(data.name || data.title || data.label || data.nickname || data.id || 'Unknown');
 }
 
 /**
@@ -453,15 +448,13 @@ export async function resolveFieldMetadata(
           // Map both the field name and foreign key to the same values
           relatedValues[assoc.name] = valueMap;
           relatedValues[assoc.foreignKey] = valueMap;
-        } catch (err) {
+        } catch {
           // Silently ignore errors fetching related records
-          console.warn(`Failed to fetch related records for ${assoc.targetCollection}:`, err);
         }
       }
     }
-  } catch (err) {
+  } catch {
     // Silently ignore errors and return empty metadata
-    console.warn(`Failed to resolve field metadata for ${collectionName}:`, err);
   }
 
   return { fieldLabels, relatedValues };
@@ -496,6 +489,59 @@ export async function getFilterOptions(ctx: Context, next: Next) {
       capturedFields: config.get('capturedFields') || [],
     };
   }
+
+  await next();
+}
+
+/**
+ * POST /api/cdc:enableAll
+ * Enables auditing for all user-defined collections at once
+ */
+export async function enableAll(ctx: Context, next: Next) {
+  const collectionsRepo = ctx.db.getRepository('collections');
+  const configRepo = ctx.db.getRepository('cdc_config');
+
+  // Get all user-defined collections (hidden=false)
+  const allCollections = await collectionsRepo.find({
+    filter: { hidden: { $ne: true } },
+  });
+
+  let enabledCount = 0;
+
+  for (const collection of allCollections) {
+    const name = collection.get('name') as string;
+
+    // Skip system collections
+    if (!shouldAuditCollection(name)) continue;
+
+    // Skip CDC's own tables
+    if (name === 'cdc_snapshots' || name === 'cdc_config') continue;
+
+    // Upsert config with enabled=true
+    const existing = await configRepo.findOne({ filter: { collectionName: name } });
+    if (existing) {
+      await configRepo.update({
+        filterByTk: name,
+        values: { enabled: true },
+      });
+    } else {
+      await configRepo.create({
+        values: {
+          collectionName: name,
+          enabled: true,
+          retentionDays: null,
+          maxVersions: null,
+        },
+      });
+    }
+    enabledCount++;
+  }
+
+  ctx.body = {
+    success: true,
+    enabled: enabledCount,
+    message: `Enabled auditing for ${enabledCount} collection(s)`,
+  };
 
   await next();
 }
