@@ -13,11 +13,18 @@
 - [X] audit existing plugins for duplicate functions and implementations and opportunities to simplify
 
 - [-] when does the platform index get updated
-  - [ ] when assets are added/removed from a collection
+  - [X] when assets are added/removed from a collection
   - [ ] when the name of an asset gets changed in a collection
   - [X] when new collections are added/removed from a platform (manual)
 
+### what I want
+- [ ] I want to delete our entire frontend user interface and remake it all using only code.
+- [ ] I want to create the frontend how I want with no code and then from another plugin admin/setting panel save the state. This would then create a template for each block or something of the sort. I want to reuse as many existing features/infra as possible leveraging the existing template and routes features. There should be an additional config. This additional config would fill in the gaps like positioning (if easy), and block -> table routing for programatic updates.
 
+- [ ] If I delete all tables and reimport them how do I configure the UI to be aware of the new table with the same schema but different name? All of the tables/pages/groups were created with no code and point directly to a specific table. Can this be modified programmatically?
+- [ ] how do I update schemas programmatically, what if it's a breaking change? Are there enough tools such that I can create an admin script that will (1) create the new collection/table based off of an openapi spec (2) backfill data (3) update the gui to point to the new table. For 2, I'm okay with this being somewhat manual. (i.e export data as csv/json, update data accordingly to meet the new schema)
+
+- [ ] reingest schemas but make name unique
 - [ ] openapi schemas need to be migratable
 - [ ] collections were made using openapi spec and admin script, same spec needs to be generated via schama management
 
@@ -112,14 +119,14 @@
 }
 ```
 
-- [-] CRUD on assets?
+- [X] CRUD on assets?
   - [X] test single update
     - [X] test rollback
   - [X] test bulk update
   - [X] test delete
     - [X] test rollback
-  - [ ] test create
-    - [ ] test rollback
+  - [X] test create
+    - [X] test rollback
 - [X] query across assets properties
 - [X] search assets in a platform
 - [X] get rid of all default `spot_arm_v2`

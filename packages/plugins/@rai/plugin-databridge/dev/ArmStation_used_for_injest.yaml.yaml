@@ -1,0 +1,42 @@
+openapi: 3.1.0
+info:
+  title: ArmStation
+  version: 1.0.0
+components:
+  schemas:
+    ArmStation:
+      type: object
+      properties:
+        name:
+          type: string
+        right_ros_domain_id:
+          type: string
+        left_ros_domain_id:
+          type: string
+        table_type:
+          type: string
+          enum:
+            - Duo_Table
+            - Duo_Pedastal
+            - Pedestal
+            - Table
+        left_gpu:
+          x-belongs-to: WorkStation
+        right_gpu:
+          x-belongs-to: WorkStation
+        left_rt:
+          x-belongs-to: WorkStation
+        right_rt:
+          x-belongs-to: WorkStation
+        left_realsense_cameras:
+          x-belongs-to-many: IntelRealSense
+        right_realsense_cameras:
+          x-belongs-to-many: IntelRealSense
+        robot_left_arm:
+          x-belongs-to: FrankaResearch3
+        robot_right_arm:
+          x-belongs-to: FrankaResearch3
+        left_gello:
+          x-belongs-to: LeaderArmTeleopDevice
+        right_gello:
+          x-belongs-to: LeaderArmTeleopDevice
