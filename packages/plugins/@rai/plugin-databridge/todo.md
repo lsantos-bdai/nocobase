@@ -33,7 +33,7 @@
 - [X] filter by changed fields
 - [X] all activity only updates on page refresh
 - [X] changes made via api show user as unknown
-- [ ] databridge update endpoint doesn't need `platform`
+- [X] databridge update endpoint doesn't need `platform`
 - [X] add an `enable_all` button to turn audit on for all collections
 
 - [X] test bad updates
@@ -71,19 +71,53 @@
   }
 }
 ```
-  - [ ] bad_invalid_type.json
-  - [ ] bad_missing_required_id.json
-  - [ ] bad_missing_required_serial.json
-  - [ ] bad_modified_system_data.json
-  - [ ] bad_modified_timestamps.json
+  - [X] bad_invalid_type.json
+```json
+{
+  "error": "Validation failed",
+  "details": {
+    "asset": "",
+    "message": "rt_throttling: Invalid number value: \"not a number\""
+  }
+}
+```
+  - [X] bad_missing_required_id.json
+```json
+{
+  "errors": [
+    {
+      "message": "Asset 'Station 3': 'data.id' is required for this operation"
+    }
+  ]
+}
+```
+  - [X] bad_missing_required_serial.json
+```json
+{
+  "errors": [
+    {
+      "message": "IntelRealSense: serial_number is required"
+    }
+  ]
+}
+```
+  - [X] bad_modified_system_data.json
+```json
+{
+  "errors": [
+    {
+      "message": "Platform 'hacked' not found"
+    }
+  ]
+}
+```
 
 - [-] CRUD on assets?
-  - [ ] test single update
-    - [ ] test rollback
-  - [ ] test bulk update
-    - [ ] test cascade rollback
-  - [ ] test delete
-    - [ ] test rollback
+  - [X] test single update
+    - [X] test rollback
+  - [X] test bulk update
+  - [X] test delete
+    - [X] test rollback
   - [ ] test create
     - [ ] test rollback
 - [X] query across assets properties

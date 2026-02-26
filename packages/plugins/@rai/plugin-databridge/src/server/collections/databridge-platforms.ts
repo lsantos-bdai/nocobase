@@ -35,7 +35,7 @@ export default defineCollection({
       uiSchema: { title: 'Description' },
     },
     {
-      type: 'json',
+      type: 'jsonb',
       name: 'registeredCollections',
       defaultValue: [],
     },

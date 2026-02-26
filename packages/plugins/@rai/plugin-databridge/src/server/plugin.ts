@@ -31,48 +31,6 @@ interface HookHandlers {
 export class PluginDatabridgeServer extends Plugin {
   private hookCleanup: Map<string, () => void> = new Map();
 
-  async afterAdd() {}
-
-  async beforeLoad() {
-    // Define the databridge_platforms collection directly
-    this.db.collection({
-      name: 'databridge_platforms',
-      title: 'Databridge Platforms',
-      fields: [
-        {
-          type: 'bigInt',
-          name: 'id',
-          autoIncrement: true,
-          primaryKey: true,
-        },
-        {
-          type: 'string',
-          name: 'name',
-          unique: true,
-        },
-        {
-          type: 'string',
-          name: 'slug',
-          unique: true,
-        },
-        {
-          type: 'string',
-          name: 'collectionName',
-          unique: true,
-        },
-        {
-          type: 'text',
-          name: 'description',
-        },
-        {
-          type: 'json',
-          name: 'registeredCollections',
-          defaultValue: [],
-        },
-      ],
-    });
-  }
-
   async load() {
     // Sync the databridge_platforms collection to ensure schema is up to date
     const platformsCollection = this.db.getCollection('databridge_platforms');

@@ -14,6 +14,7 @@ import {
   findExternalDuplicates,
   insertRecordsToLookup,
 } from '../utils';
+import { PluginDatabridgeServer } from '../plugin';
 
 export async function syncPlatform(ctx: Context, next: Next) {
   const { filterByTk } = ctx.action.params;
@@ -101,6 +102,12 @@ export async function syncPlatform(ctx: Context, next: Next) {
 
   // Update registeredCollections
   await updateRegisteredCollections(ctx, filterByTk, collectionsToAdd, collectionsToRemove);
+
+  // Register hooks for newly added collections
+  const databridgePlugin = ctx.app.pm.get('@rai/plugin-databridge') as PluginDatabridgeServer;
+  for (const collName of collectionsToAdd) {
+    databridgePlugin.registerCollectionHooks(collName);
+  }
 
   ctx.body = { synced, removed };
   await next();
