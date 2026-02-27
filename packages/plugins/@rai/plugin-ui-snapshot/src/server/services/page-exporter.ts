@@ -1,4 +1,13 @@
 /**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+/**
  * Page Exporter Service
  *
  * Lossless export of NocoBase UI pages.
@@ -13,6 +22,13 @@ export class PageExporter {
 
   constructor(private db: Database) {
     this.routeResolver = new RouteResolver(db);
+  }
+
+  /**
+   * Get all available page paths.
+   */
+  async getAllPagePaths() {
+    return this.routeResolver.getAllPagePaths();
   }
 
   /**
@@ -39,11 +55,7 @@ export class PageExporter {
       const resolved = await this.routeResolver.resolveByPath(page.path);
       if (!resolved) continue;
 
-      const snapshot = await this.buildSnapshot(
-        resolved.pageUid,
-        page.path.split('/').pop() || '',
-        page.path
-      );
+      const snapshot = await this.buildSnapshot(resolved.pageUid, page.path.split('/').pop() || '', page.path);
       snapshots.push(snapshot);
     }
 

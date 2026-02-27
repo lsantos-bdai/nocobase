@@ -1,4 +1,13 @@
 /**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+/**
  * Route Resolver Service
  *
  * Resolves route paths to NocoBase route IDs, schema UIDs, and page UIDs.
@@ -23,48 +32,23 @@ export class RouteResolver {
     const fullPath: string[] = [];
 
     for (const part of pathParts) {
-      const found = currentRoutes.find(
-        (r) => r.title.toLowerCase() === part.toLowerCase() || r.path === part
-      );
+      const found = currentRoutes.find((r) => r.title?.toLowerCase() === part.toLowerCase());
       if (!found) return null;
 
-      fullPath.push(found.title);
+      fullPath.push(found.title!);
       targetRoute = found;
       currentRoutes = found.children || [];
     }
 
     if (!targetRoute?.schemaUid) return null;
 
-    const pageInfo = await this.resolvePageFromSchema(targetRoute.schemaUid);
-    if (!pageInfo) return null;
-
     return {
       routeId: targetRoute.id,
       schemaUid: targetRoute.schemaUid,
-      pageUid: pageInfo.pageUid,
-      title: targetRoute.title,
+      pageUid: targetRoute.schemaUid,
+      title: targetRoute.title!,
       path: fullPath.join('/'),
     };
-  }
-
-  /**
-   * Resolve page UID from schema UID.
-   */
-  private async resolvePageFromSchema(schemaUid: string): Promise<{ pageUid: string } | null> {
-    // Try uiSchemas first
-    try {
-      const uiSchemaRepo = this.db.getRepository('uiSchemas');
-      if (typeof (uiSchemaRepo as any).getJsonSchema === 'function') {
-        const schema = await (uiSchemaRepo as any).getJsonSchema(schemaUid);
-        if (schema?.['x-component'] === 'FlowRoute' && schema['x-component-props']?.uid) {
-          return { pageUid: schema['x-component-props'].uid };
-        }
-      }
-    } catch {
-      // Continue with fallback
-    }
-
-    return this.getPageUidFromSchema(schemaUid);
   }
 
   /**
@@ -84,7 +68,6 @@ export class RouteResolver {
       routeMap.set(route.id, {
         id: route.id,
         title: route.title,
-        path: route.path,
         schemaUid: route.schemaUid,
         type: route.type,
         children: [],
@@ -107,59 +90,6 @@ export class RouteResolver {
     }
 
     return rootRoutes;
-  }
-
-  /**
-   * Fallback: get page UID from schema via database lookups.
-   */
-  private async getPageUidFromSchema(schemaUid: string): Promise<{ pageUid: string } | null> {
-    const flowModelRepo = this.db.getRepository('flowModels');
-
-    // Try RootPageModel with parentId = schemaUid
-    try {
-      const pageModel = await flowModelRepo.findOne({
-        filter: { parentId: schemaUid, use: 'RootPageModel' },
-      });
-      if (pageModel) return { pageUid: pageModel.uid };
-    } catch {}
-
-    // Try BlockGridModel directly under schemaUid
-    try {
-      const gridModel = await flowModelRepo.findOne({
-        filter: { parentId: schemaUid, use: 'BlockGridModel' },
-      });
-      if (gridModel) return { pageUid: schemaUid };
-    } catch {}
-
-    // Check tabs children
-    try {
-      const routeRepo = this.db.getRepository('desktopRoutes');
-      const parentRoute = await routeRepo.findOne({ filter: { schemaUid } });
-
-      if (parentRoute) {
-        const tabsChildren = await routeRepo.find({
-          filter: { parentId: parentRoute.id, type: 'tabs' },
-        });
-
-        for (const tabsChild of tabsChildren) {
-          if (tabsChild.schemaUid) {
-            const gridInTabs = await flowModelRepo.findOne({
-              filter: { parentId: tabsChild.schemaUid, use: 'BlockGridModel' },
-            });
-            if (gridInTabs) return { pageUid: tabsChild.schemaUid };
-          }
-        }
-      }
-    } catch {}
-
-    // Direct flowModel match
-    try {
-      const directMatch = await flowModelRepo.findOne({ filter: { uid: schemaUid } });
-      if (directMatch?.use) return { pageUid: directMatch.uid };
-    } catch {}
-
-    // Last resort: use schemaUid as pageUid
-    return { pageUid: schemaUid };
   }
 
   /**
@@ -279,10 +209,10 @@ export class RouteResolver {
 
   private async getFlowModelByUid(uid: string): Promise<FlowModel | null> {
     try {
-      const results = await this.db.sequelize.query(
+      const results = (await this.db.sequelize.query(
         `SELECT uid, name, options FROM "flowModels" WHERE uid = :uid LIMIT 1`,
-        { replacements: { uid }, type: 'SELECT' }
-      ) as any[];
+        { replacements: { uid }, type: 'SELECT' },
+      )) as any[];
 
       if (results.length === 0) return null;
 
@@ -330,6 +260,9 @@ export class RouteResolver {
 
     const traverse = (entries: RouteEntry[], currentPath: string[]) => {
       for (const entry of entries) {
+        // Skip entries without titles (tabs routes)
+        if (!entry.title) continue;
+
         const newPath = [...currentPath, entry.title];
         if (entry.schemaUid && entry.type !== 'group') {
           pages.push({ path: newPath.join('/'), routeId: entry.id, schemaUid: entry.schemaUid });
@@ -442,15 +375,13 @@ export class RouteResolver {
     let targetRoute: RouteEntry | null = null;
 
     for (const part of pathParts) {
-      const found = currentRoutes.find(
-        (r) => r.title?.toLowerCase() === part.toLowerCase() || r.path === part
-      );
+      const found = currentRoutes.find((r) => r.title?.toLowerCase() === part.toLowerCase());
       if (!found) return null;
       targetRoute = found;
       currentRoutes = found.children || [];
     }
 
-    return targetRoute ? { routeId: targetRoute.id, title: targetRoute.title } : null;
+    return targetRoute?.title ? { routeId: targetRoute.id, title: targetRoute.title } : null;
   }
 
   /**

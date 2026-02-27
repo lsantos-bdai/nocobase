@@ -1,4 +1,13 @@
 /**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+/**
  * UI Snapshot Types
  *
  * Single format: PageSnapshot - lossless FlowModel export/import.
@@ -54,10 +63,9 @@ export interface ResolvedRoute {
 
 export interface RouteEntry {
   id: number;
-  title: string;
-  path?: string;
+  title: string | null;
   schemaUid?: string;
-  type?: 'group' | 'page';
+  type?: 'group' | 'page' | 'flowPage' | 'tabs';
   children?: RouteEntry[];
 }
 
