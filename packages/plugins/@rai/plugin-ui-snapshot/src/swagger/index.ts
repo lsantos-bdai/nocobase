@@ -50,7 +50,6 @@ export default {
             type: 'array',
             items: { type: 'string' },
           },
-          force: { type: 'boolean', description: 'Overwrite existing page (create only)' },
         },
       },
       UISnapshot: {
@@ -100,6 +99,15 @@ export default {
         tags: ['ui-snapshot'],
         summary: 'Create page from snapshot',
         description: 'Creates a page from a PageSnapshot (same format as export). UIDs are remapped to avoid conflicts.',
+        parameters: [
+          {
+            name: 'force',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean' },
+            description: 'Overwrite existing page if it exists',
+          },
+        ],
         requestBody: {
           required: true,
           content: {

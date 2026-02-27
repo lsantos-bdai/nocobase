@@ -12,6 +12,7 @@ import { generateUid } from '../generators/uid';
 
 export async function create(ctx: Context, next: Next) {
   const body = ctx.request.body as CreateRequest;
+  const force = ctx.action.params.force === 'true' || ctx.action.params.force === true;
 
   if (!body?.flowModels || !body?.rootUid) {
     ctx.throw(400, 'Missing required fields: flowModels, rootUid');
@@ -24,7 +25,7 @@ export async function create(ctx: Context, next: Next) {
   // Check if page exists
   const existing = await routeResolver.resolveByPath(routePath);
   if (existing) {
-    if (body.force) {
+    if (force) {
       const flowModelRepo = ctx.db.getCollection('flowModels').repository as any;
       await flowModelRepo.remove(existing.pageUid);
       await routeResolver.deleteRoute(existing.routeId);
@@ -74,9 +75,13 @@ export async function create(ctx: Context, next: Next) {
     uidMap.set(oldUid, generateUid());
   }
 
-  // Insert all flowModels with remapped UIDs
+  // Insert all flowModels with remapped UIDs, sorted by sortIndex to preserve order
   let modelsImported = 0;
-  for (const [oldUid, model] of Object.entries(body.flowModels)) {
+  const sortedModels = Object.entries(body.flowModels).sort(
+    ([, a], [, b]) => ((a as any).sortIndex ?? 0) - ((b as any).sortIndex ?? 0),
+  );
+
+  for (const [oldUid, model] of sortedModels) {
     const newUid = uidMap.get(oldUid)!;
     const newParentId = model.parentId ? uidMap.get(model.parentId) || tabsSchemaUid : tabsSchemaUid;
 

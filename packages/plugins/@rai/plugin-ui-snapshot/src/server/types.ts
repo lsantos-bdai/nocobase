@@ -72,9 +72,7 @@ export interface RouteEntry {
 /**
  * API types.
  */
-export interface CreateRequest extends PageSnapshot {
-  force?: boolean;
-}
+export interface CreateRequest extends PageSnapshot {}
 
 export interface CreateResponse {
   routeId: number;

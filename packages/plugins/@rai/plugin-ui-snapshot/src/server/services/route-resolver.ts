@@ -164,7 +164,9 @@ export class RouteResolver {
     const model = allModels.find((m: any) => m.uid === uid);
     if (!model) return null;
 
-    const children = allModels.filter((m: any) => m.parentId === uid);
+    const children = allModels
+      .filter((m: any) => m.parentId === uid)
+      .sort((a: any, b: any) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
     const subModels: Record<string, any> = {};
 
     for (const child of children) {
