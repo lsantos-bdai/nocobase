@@ -177,28 +177,23 @@ function generateSubmitAction(
 /**
  * Save a FormBlockModel and its children to the database
  *
- * All flowModels already include parentId, subKey, subType from generation,
- * ensuring the closure table is populated correctly.
+ * Uses FlowModelRepository.upsertModel() which correctly handles:
+ * - The 'options' JSON column structure
+ * - Tree path (closure table) creation for parent-child relationships
  */
 export async function saveForm(db: Database, form: GeneratedForm): Promise<void> {
-  const repo = db.getRepository('flowModels');
+  const repo = db.getRepository('flowModels') as any;
 
-  // Save the form block itself (already has parent relationship)
-  await repo.create({
-    values: form.flowModel,
-  });
+  // Save the form block itself using upsertModel
+  await repo.upsertModel(form.flowModel);
 
-  // Save items (already have parent relationship)
+  // Save items using upsertModel
   for (const item of form.items) {
-    await repo.create({
-      values: item.flowModel,
-    });
+    await repo.upsertModel(item.flowModel);
   }
 
-  // Save submit action if present (already has parent relationship)
+  // Save submit action if present using upsertModel
   if (form.submitAction) {
-    await repo.create({
-      values: form.submitAction.flowModel,
-    });
+    await repo.upsertModel(form.submitAction.flowModel);
   }
 }

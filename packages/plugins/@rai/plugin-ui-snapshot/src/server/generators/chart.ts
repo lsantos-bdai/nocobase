@@ -188,13 +188,12 @@ function buildChartOption(
 /**
  * Save a ChartBlockModel to the database
  *
- * The flowModel already includes parentId, subKey, subType from generation,
- * ensuring the closure table is populated correctly.
+ * Uses FlowModelRepository.upsertModel() which correctly handles:
+ * - The 'options' JSON column structure
+ * - Tree path (closure table) creation for parent-child relationships
  */
 export async function saveChart(db: Database, chart: GeneratedChart): Promise<void> {
-  const repo = db.getRepository('flowModels');
+  const repo = db.getRepository('flowModels') as any;
 
-  await repo.create({
-    values: chart.flowModel,
-  });
+  await repo.upsertModel(chart.flowModel);
 }

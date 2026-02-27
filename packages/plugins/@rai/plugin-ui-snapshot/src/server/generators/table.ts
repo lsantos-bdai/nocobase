@@ -199,28 +199,23 @@ function generateTableAction(
 /**
  * Save a TableBlockModel and its children to the database
  *
- * All flowModels already include parentId, subKey, subType from generation,
- * ensuring the closure table is populated correctly.
+ * Uses FlowModelRepository.upsertModel() which correctly handles:
+ * - The 'options' JSON column structure
+ * - Tree path (closure table) creation for parent-child relationships
  */
 export async function saveTable(db: Database, table: GeneratedTable): Promise<void> {
-  const repo = db.getRepository('flowModels');
+  const repo = db.getRepository('flowModels') as any;
 
-  // Save the table block itself (already has parent relationship)
-  await repo.create({
-    values: table.flowModel,
-  });
+  // Save the table block itself using upsertModel
+  await repo.upsertModel(table.flowModel);
 
-  // Save columns (already have parent relationship)
+  // Save columns using upsertModel
   for (const column of table.columns) {
-    await repo.create({
-      values: column.flowModel,
-    });
+    await repo.upsertModel(column.flowModel);
   }
 
-  // Save actions (already have parent relationship)
+  // Save actions using upsertModel
   for (const action of table.actions) {
-    await repo.create({
-      values: action.flowModel,
-    });
+    await repo.upsertModel(action.flowModel);
   }
 }

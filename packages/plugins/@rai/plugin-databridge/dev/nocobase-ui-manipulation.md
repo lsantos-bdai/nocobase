@@ -106,6 +106,243 @@ POST /api/flowModels:move
 }
 ```
 
+## Creating Complete Pages via API (Verified)
+
+This section documents the exact API sequence required to create a fully functional NocoBase page with blocks. This was verified by analyzing browser HAR files and testing directly against the API.
+
+### Page Creation Architecture
+
+A complete flowPage requires **4 components** created in this exact order:
+
+```
+desktopRoutes (flowPage + tabs child)
+    │
+    └── schemaUid → uiSchemas (FlowRoute placeholder)
+                        │
+                        ├── RootPageModel (parentId = schemaUid)
+                        │
+                        └── tabs child
+                              │
+                              └── BlockGridModel (parentId = tabs schemaUid!)
+                                    │
+                                    └── blocks (TableBlockModel, ChartBlockModel, etc.)
+```
+
+**Critical Insight:** The `BlockGridModel.parentId` must be the **tabs child's schemaUid**, NOT the page's schemaUid. This is what allows blocks to render correctly.
+
+### Complete Page Creation Sequence
+
+#### Step 1: Create Route (desktopRoutes:create)
+
+```bash
+curl -X POST "http://localhost:13000/api/desktopRoutes:create" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Role: root" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "flowPage",
+    "title": "My New Page",
+    "parentId": 348977622220800,
+    "schemaUid": "mypage_schema_uid",
+    "menuSchemaUid": "mypage_menu_uid",
+    "enableTabs": false,
+    "children": [{
+      "type": "tabs",
+      "schemaUid": "mypage_tabs_uid",
+      "tabSchemaName": "mypage_tab_name",
+      "hidden": true
+    }]
+  }'
+```
+
+**Key fields:**
+- `parentId`: Route ID of parent (e.g., EngOps group = `348977622220800`)
+- `schemaUid`: Unique ID for the page schema
+- `menuSchemaUid`: Separate UID for menu entry (must differ from schemaUid)
+- `enableTabs`: Set to `false` for single-tab pages
+- `children[0].schemaUid`: **This is the tabs container UID - needed later for BlockGridModel!**
+- `children[0].hidden`: Set to `true` to hide tab bar
+
+#### Step 2: Insert uiSchema (uiSchemas:insert)
+
+```bash
+curl -X POST "http://localhost:13000/api/uiSchemas:insert" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Role: root" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"void","x-component":"FlowRoute","x-uid":"mypage_schema_uid"}'
+```
+
+**Note:** The `x-uid` must match the route's `schemaUid` from Step 1.
+
+#### Step 3: Create RootPageModel (flowModels:save)
+
+```bash
+curl -X POST "http://localhost:13000/api/flowModels:save" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Role: root" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uid": "mypage_root_model_uid",
+    "async": true,
+    "parentId": "mypage_schema_uid",
+    "subKey": "page",
+    "subType": "object",
+    "use": "RootPageModel",
+    "stepParams": {},
+    "sortIndex": 0,
+    "flowRegistry": {}
+  }'
+```
+
+**Key fields:**
+- `parentId`: Must match the route's `schemaUid` from Step 1
+- `subKey`: Must be `"page"`
+- `subType`: Must be `"object"`
+- `async`: Set to `true`
+
+#### Step 4: Create BlockGridModel (flowModels:save)
+
+```bash
+curl -X POST "http://localhost:13000/api/flowModels:save" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Role: root" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uid": "mypage_grid_uid",
+    "parentId": "mypage_tabs_uid",
+    "subKey": "grid",
+    "async": true,
+    "subType": "object",
+    "use": "BlockGridModel",
+    "stepParams": {},
+    "sortIndex": 0,
+    "flowRegistry": {},
+    "filterManager": []
+  }'
+```
+
+**CRITICAL:** The `parentId` must be the **tabs child's schemaUid** (`mypage_tabs_uid`), NOT the page's schemaUid!
+
+### Adding Blocks to the Page
+
+After creating the page, add blocks in 2 steps:
+
+#### Step 1: Create the Block (e.g., TableBlockModel)
+
+```bash
+curl -X POST "http://localhost:13000/api/flowModels:save" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Role: root" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uid": "mytable_uid",
+    "use": "TableBlockModel",
+    "parentId": "mypage_grid_uid",
+    "subKey": "items",
+    "subType": "array",
+    "sortIndex": 1,
+    "stepParams": {
+      "resourceSettings": {
+        "init": {
+          "dataSourceKey": "main",
+          "collectionName": "t_9dx8b5vb55b"
+        }
+      }
+    },
+    "flowRegistry": {}
+  }'
+```
+
+#### Step 2: Update Grid Layout to Position the Block
+
+```bash
+curl -X POST "http://localhost:13000/api/flowModels:save" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Role: root" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uid": "mypage_grid_uid",
+    "stepParams": {
+      "gridSettings": {
+        "grid": {
+          "rows": {
+            "row1": [["mytable_uid"]]
+          },
+          "sizes": {
+            "row1": [24]
+          },
+          "rowOrder": ["row1"]
+        }
+      }
+    }
+  }'
+```
+
+### Complete Working Example
+
+This example creates a page under EngOps with a WorkStation table:
+
+```bash
+#!/bin/bash
+TOKEN="your-jwt-token"
+ENGOPS_PARENT_ID=348977622220800
+
+# Generate unique IDs
+TIMESTAMP=$(date +%s)
+SCHEMA_UID="page_${TIMESTAMP}"
+MENU_UID="menu_${TIMESTAMP}"
+TABS_UID="tabs_${TIMESTAMP}"
+TAB_NAME="tab_${TIMESTAMP}"
+ROOT_UID="root_${TIMESTAMP}"
+GRID_UID="grid_${TIMESTAMP}"
+TABLE_UID="table_${TIMESTAMP}"
+ROW_ID="row_${TIMESTAMP}"
+
+# Step 1: Create Route
+curl -s -X POST "http://localhost:13000/api/desktopRoutes:create" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Role: root" -H "Content-Type: application/json" \
+  -d "{\"type\":\"flowPage\",\"title\":\"API Test Page\",\"parentId\":$ENGOPS_PARENT_ID,\"schemaUid\":\"$SCHEMA_UID\",\"menuSchemaUid\":\"$MENU_UID\",\"enableTabs\":false,\"children\":[{\"type\":\"tabs\",\"schemaUid\":\"$TABS_UID\",\"tabSchemaName\":\"$TAB_NAME\",\"hidden\":true}]}"
+
+# Step 2: Insert uiSchema
+curl -s -X POST "http://localhost:13000/api/uiSchemas:insert" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Role: root" -H "Content-Type: application/json" \
+  -d "{\"type\":\"void\",\"x-component\":\"FlowRoute\",\"x-uid\":\"$SCHEMA_UID\"}"
+
+# Step 3: Create RootPageModel
+curl -s -X POST "http://localhost:13000/api/flowModels:save" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Role: root" -H "Content-Type: application/json" \
+  -d "{\"uid\":\"$ROOT_UID\",\"async\":true,\"parentId\":\"$SCHEMA_UID\",\"subKey\":\"page\",\"subType\":\"object\",\"use\":\"RootPageModel\",\"stepParams\":{},\"sortIndex\":0,\"flowRegistry\":{}}"
+
+# Step 4: Create BlockGridModel (parentId = TABS_UID!)
+curl -s -X POST "http://localhost:13000/api/flowModels:save" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Role: root" -H "Content-Type: application/json" \
+  -d "{\"uid\":\"$GRID_UID\",\"parentId\":\"$TABS_UID\",\"subKey\":\"grid\",\"async\":true,\"subType\":\"object\",\"use\":\"BlockGridModel\",\"stepParams\":{},\"sortIndex\":0,\"flowRegistry\":{},\"filterManager\":[]}"
+
+# Step 5: Create TableBlockModel
+curl -s -X POST "http://localhost:13000/api/flowModels:save" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Role: root" -H "Content-Type: application/json" \
+  -d "{\"uid\":\"$TABLE_UID\",\"use\":\"TableBlockModel\",\"parentId\":\"$GRID_UID\",\"subKey\":\"items\",\"subType\":\"array\",\"sortIndex\":1,\"stepParams\":{\"resourceSettings\":{\"init\":{\"dataSourceKey\":\"main\",\"collectionName\":\"t_9dx8b5vb55b\"}}},\"flowRegistry\":{}}"
+
+# Step 6: Update grid layout
+curl -s -X POST "http://localhost:13000/api/flowModels:save" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Role: root" -H "Content-Type: application/json" \
+  -d "{\"uid\":\"$GRID_UID\",\"stepParams\":{\"gridSettings\":{\"grid\":{\"rows\":{\"$ROW_ID\":[[\"$TABLE_UID\"]]},\"sizes\":{\"$ROW_ID\":[24]},\"rowOrder\":[\"$ROW_ID\"]}}}}"
+
+echo "Page created at: http://localhost:13000/admin/$SCHEMA_UID"
+```
+
+### Common Pitfalls
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Page shows blank | BlockGridModel.parentId wrong | Use tabs schemaUid, not page schemaUid |
+| Can't add blocks via GUI | Missing BlockGridModel | Ensure Step 4 completed successfully |
+| Blocks don't appear | Grid layout not updated | Run Step 6 to position blocks in grid |
+| Page not in menu | Route not created properly | Check parentId and schemaUid in Step 1 |
+
+---
+
 ## Creating Blocks Programmatically (Verified)
 
 ### Critical: Parent Relationship Must Be in Initial Save

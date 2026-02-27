@@ -8,6 +8,7 @@
  */
 import type { Database } from '@nocobase/database';
 import type { ResolvedRoute, RouteEntry, FlowModel } from '../types';
+import { generateUid } from '../generators/uid';
 
 /**
  * Page type classification
@@ -775,22 +776,30 @@ export class RouteResolver {
   }
 
   /**
-   * Create a new route entry
+   * Create a new flowPage route with its required tabs child.
+   *
+   * NocoBase flowPages require this structure:
+   * - flowPage route (the menu entry)
+   *   - tabs child route (contains the actual page content)
+   *
+   * Returns both the route ID and the tabs schemaUid (needed for BlockGridModel parent).
    */
   async createRoute(options: {
     title: string;
     parentPath?: string;
     schemaUid: string;
+    tabsSchemaUid: string;
     icon?: string;
-  }): Promise<number> {
+  }): Promise<{ routeId: number; tabsSchemaUid: string }> {
     const repo = this.db.getRepository('desktopRoutes');
 
     let parentId: number | null = null;
     let sort = 0;
 
-    // If parent path specified, resolve it
+    // If parent path specified, resolve it (route only, not page content)
+    // This allows parent groups that don't have page content
     if (options.parentPath) {
-      const parentResolved = await this.resolveByPath(options.parentPath);
+      const parentResolved = await this.resolveRouteByPath(options.parentPath);
       if (!parentResolved) {
         throw new Error(`Parent path not found: ${options.parentPath}`);
       }
@@ -809,21 +818,42 @@ export class RouteResolver {
       sort = roots.length > 0 ? Math.max(...roots.map((s: any) => s.sort || 0)) + 1 : 0;
     }
 
+    // Generate a separate menuSchemaUid (GUI uses a different UID for menu)
+    const menuSchemaUid = generateUid();
+    // Generate tabSchemaName for the tabs child
+    const tabSchemaName = generateUid();
+
+    // Create the flowPage route (the menu entry)
+    // Match the GUI pattern: enableTabs=false, separate menuSchemaUid
     const route = await repo.create({
       values: {
         title: options.title,
         schemaUid: options.schemaUid,
         parentId,
         sort,
-        type: 'page',
+        type: 'flowPage',
         icon: options.icon,
-        menuSchemaUid: options.schemaUid,
-        enableTabs: false,
+        menuSchemaUid,
+        enableTabs: false,  // GUI uses false
         hideInMenu: false,
       },
     });
 
-    return route.id;
+    // Create the tabs child route (required for RootPageModel)
+    // Match the GUI pattern: hidden=true, tabSchemaName
+    await repo.create({
+      values: {
+        title: null,
+        schemaUid: options.tabsSchemaUid,
+        parentId: route.id,
+        sort: 0,
+        type: 'tabs',
+        tabSchemaName,
+        hidden: true,  // GUI uses hidden=true (not hideInMenu)
+      },
+    });
+
+    return { routeId: route.id, tabsSchemaUid: options.tabsSchemaUid };
   }
 
   /**
@@ -866,6 +896,46 @@ export class RouteResolver {
     }
 
     return descendants;
+  }
+
+  /**
+   * Resolve a path to just the route entry (without page content resolution).
+   * Use this when you only need the route ID (e.g., for setting parent routes on groups).
+   *
+   * Unlike resolveByPath(), this method does NOT try to resolve page content,
+   * which allows it to work with groups that don't have flowModel content.
+   */
+  async resolveRouteByPath(path: string): Promise<{ routeId: number; title: string } | null> {
+    console.log(`[RouteResolver] resolveRouteByPath called with path: "${path}"`);
+
+    const pathParts = path.split('/').filter(Boolean);
+    if (pathParts.length === 0) return null;
+
+    const routes = await this.getRoutesTree();
+    let currentRoutes = routes;
+    let targetRoute: RouteEntry | null = null;
+
+    for (const part of pathParts) {
+      const found = currentRoutes.find(
+        (r) => r.title?.toLowerCase() === part.toLowerCase() || r.path === part
+      );
+      if (!found) {
+        console.log(`[RouteResolver] resolveRouteByPath: part "${part}" not found`);
+        return null;
+      }
+
+      targetRoute = found;
+      currentRoutes = found.children || [];
+    }
+
+    if (!targetRoute) return null;
+
+    console.log(`[RouteResolver] resolveRouteByPath: found route id=${targetRoute.id}, title="${targetRoute.title}"`);
+
+    return {
+      routeId: targetRoute.id,
+      title: targetRoute.title,
+    };
   }
 
   /**

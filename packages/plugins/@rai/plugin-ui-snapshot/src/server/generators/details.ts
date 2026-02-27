@@ -175,28 +175,23 @@ function generateDetailsAction(
 /**
  * Save a DetailsBlockModel and its children to the database
  *
- * All flowModels already include parentId, subKey, subType from generation,
- * ensuring the closure table is populated correctly.
+ * Uses FlowModelRepository.upsertModel() which correctly handles:
+ * - The 'options' JSON column structure
+ * - Tree path (closure table) creation for parent-child relationships
  */
 export async function saveDetails(db: Database, details: GeneratedDetails): Promise<void> {
-  const repo = db.getRepository('flowModels');
+  const repo = db.getRepository('flowModels') as any;
 
-  // Save the details block itself (already has parent relationship)
-  await repo.create({
-    values: details.flowModel,
-  });
+  // Save the details block itself using upsertModel
+  await repo.upsertModel(details.flowModel);
 
-  // Save items (already have parent relationship)
+  // Save items using upsertModel
   for (const item of details.items) {
-    await repo.create({
-      values: item.flowModel,
-    });
+    await repo.upsertModel(item.flowModel);
   }
 
-  // Save actions (already have parent relationship)
+  // Save actions using upsertModel
   for (const action of details.actions) {
-    await repo.create({
-      values: action.flowModel,
-    });
+    await repo.upsertModel(action.flowModel);
   }
 }
