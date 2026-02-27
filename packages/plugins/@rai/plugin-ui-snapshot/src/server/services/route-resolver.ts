@@ -129,16 +129,13 @@ export class RouteResolver {
   }
 
   private async findBlockGridModelByParentId(parentId: string): Promise<FlowModel | null> {
-    const flowModelRepo = this.db.getRepository('flowModels');
-    const allModelsRaw = await flowModelRepo.find({ limit: 1000 });
-    const allModels = allModelsRaw.map((m: any) => (typeof m.toJSON === 'function' ? m.toJSON() : m));
+    const results = (await this.db.sequelize.query(
+      `SELECT uid FROM "flowModels" WHERE options->>'use' = 'BlockGridModel' AND options->>'parentId' = :parentId LIMIT 1`,
+      { replacements: { parentId }, type: 'SELECT' },
+    )) as any[];
 
-    for (const model of allModels) {
-      if (model.use === 'BlockGridModel' && model.parentId === parentId) {
-        return this.getFlowModelByUidWithSubModels(model.uid);
-      }
-    }
-    return null;
+    if (results.length === 0) return null;
+    return this.getFlowModelByUidWithSubModels(results[0].uid);
   }
 
   private async getFlowModelByUidWithSubModels(uid: string): Promise<FlowModel | null> {
@@ -157,7 +154,7 @@ export class RouteResolver {
 
     let allModels = allModelsCache;
     if (!allModels) {
-      const allModelsRaw = await flowModelRepo.find({ limit: 2000 });
+      const allModelsRaw = await flowModelRepo.find();
       allModels = allModelsRaw.map((m: any) => (typeof m.toJSON === 'function' ? m.toJSON() : m));
     }
 

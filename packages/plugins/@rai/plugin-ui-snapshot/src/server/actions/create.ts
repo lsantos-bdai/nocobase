@@ -137,6 +137,21 @@ function remapUids(model: any, uidMap: Map<string, string>): any {
     };
   }
 
+  // Remap UIDs in stepParams.referenceSettings (reference block targets)
+  if (result.stepParams?.referenceSettings) {
+    const ref = result.stepParams.referenceSettings;
+    const newRef = { ...ref };
+
+    if (ref.target?.targetUid && uidMap.has(ref.target.targetUid)) {
+      newRef.target = { ...ref.target, targetUid: uidMap.get(ref.target.targetUid) };
+    }
+    if (ref.useTemplate?.targetUid && uidMap.has(ref.useTemplate.targetUid)) {
+      newRef.useTemplate = { ...ref.useTemplate, targetUid: uidMap.get(ref.useTemplate.targetUid) };
+    }
+
+    result.stepParams = { ...result.stepParams, referenceSettings: newRef };
+  }
+
   if (result.subModels) {
     const newSubModels: Record<string, any> = {};
     for (const [key, value] of Object.entries(result.subModels)) {
