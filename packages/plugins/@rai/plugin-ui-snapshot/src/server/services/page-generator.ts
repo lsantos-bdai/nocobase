@@ -1,7 +1,7 @@
 /**
  * Page Generator Service
  *
- * Orchestrates the creation of complete pages from YAML configuration.
+ * Orchestrates the creation of complete pages from JSON configuration.
  * Creates routes, uiSchemas, and flowModels in the proper order with
  * correct parent-child relationships.
  */
@@ -18,7 +18,7 @@ import type {
   CreateResponse,
   FlowModel,
 } from '../types';
-import { parseYaml, validatePageConfig, resolveCollection, extractBlockName } from './yaml-parser';
+import { validatePageConfig, resolveCollection } from './config-parser';
 import { RouteResolver } from './route-resolver';
 import {
   generateUid,
@@ -40,18 +40,17 @@ export class PageGenerator {
   }
 
   /**
-   * Create a page from YAML configuration
+   * Create a page from a config object
    */
-  async createFromYaml(
-    yamlContent: string,
+  async createFromConfig(
+    config: PageConfig,
     options: { force?: boolean } = {}
   ): Promise<CreateResponse> {
-    // Parse and validate YAML
-    const config = parseYaml(yamlContent);
+    // Validate config
     const validation = validatePageConfig(config);
 
     if (!validation.valid || !validation.config) {
-      throw new Error(`YAML validation failed: ${validation.errors.join('; ')}`);
+      throw new Error(`Config validation failed: ${validation.errors.join('; ')}`);
     }
 
     const validatedConfig = validation.config;

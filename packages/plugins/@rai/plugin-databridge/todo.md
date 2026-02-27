@@ -143,3 +143,6 @@
   - import schemas via openapi spec
   - If I delete all tables and reimport them how do I configure the UI to be aware of the new table with the same schema but different name?
   - how do I update schemas programmatically
+
+
+

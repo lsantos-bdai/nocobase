@@ -10,7 +10,7 @@
 import type { Database } from '@nocobase/database';
 import type { LayoutConfig, GridSettings, FlowModel } from '../types';
 import { generateUid, generateRowId } from './uid';
-import { extractBlockName } from '../services/yaml-parser';
+import { extractBlockName } from '../services/config-parser';
 
 export interface BlockGridGeneratorOptions {
   layout: LayoutConfig;

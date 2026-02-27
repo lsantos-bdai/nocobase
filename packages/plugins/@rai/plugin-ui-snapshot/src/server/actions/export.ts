@@ -3,14 +3,17 @@
  *
  * GET /api/ui-snapshot:export?path=EngOps/Workstations
  *
- * Exports a single UI page to YAML format.
+ * Exports a single UI page to JSON format.
  *
  * Query parameters:
  * - path: Route path of the page to export (e.g., "EngOps/Workstations")
  *
  * Response:
  * {
- *   "yaml": "page:\n  title: ...",
+ *   "page": {...},
+ *   "collections": {...},
+ *   "layout": {...},
+ *   "blocks": {...},
  *   "path": "EngOps/Workstations"
  * }
  */
@@ -19,11 +22,7 @@ import { PageExporter } from '../services/page-exporter';
 import type { ExportResponse } from '../types';
 
 export async function exportPage(ctx: Context, next: Next) {
-  console.log(`[exportPage] Action called`);
-  console.log(`[exportPage] ctx.action.params:`, JSON.stringify(ctx.action.params));
-
   const { path } = ctx.action.params;
-  console.log(`[exportPage] Extracted path: "${path}"`);
 
   // Validate request
   if (!path) {
@@ -39,10 +38,10 @@ export async function exportPage(ctx: Context, next: Next) {
   try {
     console.log(`[exportPage] Creating PageExporter and calling exportByPath("${path}")`);
     const exporter = new PageExporter(ctx.db);
-    const yaml = await exporter.exportByPath(path);
+    const config = await exporter.exportByPath(path);
 
     const response: ExportResponse = {
-      yaml,
+      ...config,
       path,
     };
 

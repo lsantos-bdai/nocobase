@@ -2,12 +2,6 @@
   "name": "@rai/plugin-ui-snapshot",
   "version": "2.0.1",
   "main": "dist/server/index.js",
-  "dependencies": {
-    "js-yaml": "^4.1.0"
-  },
-  "devDependencies": {
-    "@types/js-yaml": "^4.0.9"
-  },
   "peerDependencies": {
     "@nocobase/client": "2.x",
     "@nocobase/server": "2.x",

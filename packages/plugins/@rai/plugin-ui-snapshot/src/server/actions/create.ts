@@ -3,12 +3,15 @@
  *
  * POST /api/ui-snapshot:create
  *
- * Creates a UI page from YAML configuration.
+ * Creates a UI page from configuration object.
  *
  * Request body:
  * {
- *   "yaml": "page:\n  title: ...",
- *   "force": false  // Optional - if true, deletes existing page first
+ *   "page": {"title": "Workstations", "route": "EngOps/Workstations"},
+ *   "layout": {"rows": [...]},
+ *   "blocks": {...},
+ *   "collections": {...},  // Optional
+ *   "force": false         // Optional - if true, deletes existing page first
  * }
  *
  * Response:
@@ -21,25 +24,22 @@
  */
 import { Context, Next } from '@nocobase/actions';
 import { PageGenerator } from '../services/page-generator';
-import type { CreateRequest, CreateResponse } from '../types';
+import type { CreateRequest, PageConfig } from '../types';
 
 export async function create(ctx: Context, next: Next) {
   const body = ctx.request.body as CreateRequest;
 
-  // Validate request
-  if (!body || !body.yaml) {
-    ctx.throw(400, 'Missing required field: yaml');
+  // Validate request - check for required page field
+  if (!body || !body.page) {
+    ctx.throw(400, 'Missing required field: page');
   }
 
-  if (typeof body.yaml !== 'string') {
-    ctx.throw(400, 'Field yaml must be a string');
-  }
-
-  const force = body.force === true;
+  // Extract force option and build config object
+  const { force, ...config } = body;
 
   try {
     const generator = new PageGenerator(ctx.db, ctx.app);
-    const result = await generator.createFromYaml(body.yaml, { force });
+    const result = await generator.createFromConfig(config as PageConfig, { force: force === true });
 
     ctx.body = result;
     ctx.withoutDataWrapping = true;

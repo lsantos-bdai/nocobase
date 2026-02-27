@@ -3,11 +3,14 @@
  *
  * GET /api/ui-snapshot:exportAll
  *
- * Exports the entire UI (all pages) to a single YAML snapshot.
+ * Exports the entire UI (all pages) to a single JSON snapshot.
  *
  * Response:
  * {
- *   "yaml": "version: '1.0'\nexported_at: ...",
+ *   "version": "1.0",
+ *   "exported_at": "...",
+ *   "collections": {...},
+ *   "pages": [...],
  *   "pageCount": 5
  * }
  */
@@ -17,14 +20,11 @@ import { PageExporter } from '../services/page-exporter';
 export async function exportAll(ctx: Context, next: Next) {
   try {
     const exporter = new PageExporter(ctx.db);
-    const yaml = await exporter.exportAllPages();
-
-    // Count pages in the export
-    const pageCount = (yaml.match(/^  - page:/gm) || []).length;
+    const snapshot = await exporter.exportAllPages();
 
     ctx.body = {
-      yaml,
-      pageCount,
+      ...snapshot,
+      pageCount: Array.isArray(snapshot.pages) ? snapshot.pages.length : 0,
     };
     ctx.withoutDataWrapping = true;
   } catch (err: any) {

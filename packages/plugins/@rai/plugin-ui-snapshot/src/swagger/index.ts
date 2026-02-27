@@ -9,18 +9,46 @@ export default {
   tags: [
     {
       name: 'ui-snapshot',
-      description: 'YAML-based UI page creation, export, and management',
+      description: 'JSON-based UI page creation, export, and management',
     },
   ],
   components: {
     schemas: {
       CreateRequest: {
         type: 'object',
-        required: ['yaml'],
+        description: 'Page configuration object with optional force flag',
+        required: ['page', 'layout', 'blocks'],
         properties: {
-          yaml: {
-            type: 'string',
-            description: 'YAML configuration defining the page structure, layout, and blocks',
+          page: {
+            type: 'object',
+            required: ['title'],
+            description: 'Page settings (title, icon, route)',
+            properties: {
+              title: { type: 'string', description: 'Page title displayed in navigation' },
+              icon: { type: 'string', description: 'Ant Design icon name (e.g., "DesktopOutlined")' },
+              route: { type: 'string', description: 'Route path (auto-generated from title if omitted)' },
+            },
+          },
+          collections: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+            description: 'Map of collection aliases to internal names (e.g., {"WorkStation": "t_9dx8b5vb55b"})',
+          },
+          layout: {
+            type: 'object',
+            required: ['rows'],
+            description: 'Grid layout configuration',
+            properties: {
+              rows: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/LayoutRow' },
+              },
+            },
+          },
+          blocks: {
+            type: 'object',
+            additionalProperties: { $ref: '#/components/schemas/BlockConfig' },
+            description: 'Block configurations keyed by name',
           },
           force: {
             type: 'boolean',
@@ -29,26 +57,59 @@ export default {
           },
         },
         example: {
-          yaml: `page:
-  title: "Workstations"
-  route: "EngOps/Workstations"
-collections:
-  WorkStation: t_9dx8b5vb55b
-layout:
-  rows:
-    - columns:
-        - width: 24
-          blocks:
-            - $ref: "#/blocks/main_table"
-blocks:
-  main_table:
-    type: TableBlockModel
-    collection: WorkStation
-    columns:
-      - field: name
-        sortable: true
-      - field: status`,
+          page: {
+            title: 'Workstations',
+            route: 'EngOps/Workstations',
+          },
+          collections: {
+            WorkStation: 't_9dx8b5vb55b',
+          },
+          layout: {
+            rows: [
+              {
+                columns: [
+                  {
+                    width: 24,
+                    blocks: [{ $ref: '#/blocks/main_table' }],
+                  },
+                ],
+              },
+            ],
+          },
+          blocks: {
+            main_table: {
+              type: 'TableBlockModel',
+              collection: 'WorkStation',
+              columns: [
+                { field: 'name', sortable: true },
+                { field: 'status' },
+              ],
+            },
+          },
           force: false,
+        },
+      },
+      LayoutRow: {
+        type: 'object',
+        properties: {
+          columns: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                width: { type: 'integer', minimum: 1, maximum: 24, description: 'Column width out of 24' },
+                blocks: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      $ref: { type: 'string', description: 'Reference to block (e.g., "#/blocks/table1")' },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
       CreateResponse: {
@@ -115,23 +176,77 @@ blocks:
       },
       ExportResponse: {
         type: 'object',
+        description: 'Exported page configuration with path',
         properties: {
-          yaml: {
-            type: 'string',
-            description: 'YAML configuration of the exported page',
+          page: {
+            type: 'object',
+            description: 'Page settings (title, icon, route)',
+            properties: {
+              title: { type: 'string' },
+              icon: { type: 'string' },
+              route: { type: 'string' },
+            },
+          },
+          collections: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+            description: 'Map of collection aliases to internal names',
+          },
+          layout: {
+            type: 'object',
+            description: 'Grid layout configuration',
+          },
+          blocks: {
+            type: 'object',
+            additionalProperties: { $ref: '#/components/schemas/BlockConfig' },
+            description: 'Block configurations keyed by name',
           },
           path: {
             type: 'string',
             description: 'Route path of the exported page',
           },
         },
+        example: {
+          page: { title: 'Workstations', route: 'EngOps/Workstations' },
+          collections: { WorkStation: 't_9dx8b5vb55b' },
+          layout: { rows: [{ columns: [{ width: 24, blocks: [{ $ref: '#/blocks/main_table' }] }] }] },
+          blocks: {
+            main_table: {
+              type: 'TableBlockModel',
+              collection: 'WorkStation',
+              columns: [{ field: 'name' }, { field: 'status' }],
+            },
+          },
+          path: 'EngOps/Workstations',
+        },
       },
       ExportAllResponse: {
         type: 'object',
+        description: 'Full UI snapshot with all pages',
         properties: {
-          yaml: {
+          version: {
             type: 'string',
-            description: 'YAML snapshot containing all pages',
+            description: 'Snapshot format version',
+          },
+          exported_at: {
+            type: 'string',
+            format: 'date-time',
+            description: 'Export timestamp',
+          },
+          collections: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+            description: 'Global collection alias mappings',
+          },
+          pages: {
+            type: 'array',
+            description: 'Array of page configurations',
+            items: {
+              type: 'object',
+              properties: {
+                page: { $ref: '#/components/schemas/PageConfig' },
+              },
+            },
           },
           pageCount: {
             type: 'integer',
@@ -154,7 +269,7 @@ blocks:
       },
       PageConfig: {
         type: 'object',
-        description: 'YAML page configuration structure',
+        description: 'JSON page configuration structure',
         required: ['page', 'layout', 'blocks'],
         properties: {
           page: {
@@ -169,7 +284,7 @@ blocks:
           collections: {
             type: 'object',
             additionalProperties: { type: 'string' },
-            description: 'Map of collection aliases to internal names (e.g., WorkStation: t_9dx8b5vb55b)',
+            description: 'Map of collection aliases to internal names (e.g., {"WorkStation": "t_9dx8b5vb55b"})',
           },
           layout: {
             type: 'object',
@@ -290,9 +405,9 @@ blocks:
     '/ui-snapshot:create': {
       post: {
         tags: ['ui-snapshot'],
-        summary: 'Create page from YAML',
+        summary: 'Create page from JSON',
         description:
-          'Creates a new UI page from YAML configuration. The YAML defines the page structure, layout, blocks, and collection mappings. If the page already exists, the request fails unless force=true is specified.',
+          'Creates a new UI page from JSON configuration. The JSON defines the page structure, layout, blocks, and collection mappings. If the page already exists, the request fails unless force=true is specified.',
         requestBody: {
           required: true,
           content: {
@@ -311,11 +426,11 @@ blocks:
             },
           },
           400: {
-            description: 'Bad request - missing or invalid yaml field',
+            description: 'Bad request - missing required page field',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
-                example: { error: 'Bad request', message: 'Missing required field: yaml' },
+                example: { error: 'Bad request', message: 'Missing required field: page' },
               },
             },
           },
@@ -332,13 +447,13 @@ blocks:
             },
           },
           422: {
-            description: 'Validation failed - YAML structure is invalid',
+            description: 'Validation failed - JSON structure is invalid',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
                 example: {
                   error: 'Validation failed',
-                  message: "YAML validation failed: Missing required field: page.title; Block 'table1': columns[0] requires 'field'",
+                  message: "JSON validation failed: Missing required field: page.title; Block 'table1': columns[0] requires 'field'",
                 },
               },
             },
@@ -393,9 +508,9 @@ blocks:
     '/ui-snapshot:export': {
       get: {
         tags: ['ui-snapshot'],
-        summary: 'Export page to YAML',
+        summary: 'Export page to JSON',
         description:
-          'Exports a single UI page to YAML format. The exported YAML can be used to recreate the page or serve as a template.',
+          'Exports a single UI page to JSON format. The exported JSON can be used to recreate the page or serve as a template.',
         parameters: [
           {
             name: 'path',
@@ -439,7 +554,7 @@ blocks:
         tags: ['ui-snapshot'],
         summary: 'Export all pages',
         description:
-          'Exports the entire UI (all pages) to a single YAML snapshot. Useful for backups or migrating the UI to another instance.',
+          'Exports the entire UI (all pages) to a single JSON snapshot. Useful for backups or migrating the UI to another instance.',
         responses: {
           200: {
             description: 'All pages exported successfully',
@@ -447,8 +562,11 @@ blocks:
               'application/json': {
                 schema: { $ref: '#/components/schemas/ExportAllResponse' },
                 example: {
-                  yaml: "version: '1.0'\nexported_at: '2026-02-26T14:30:00.000Z'\ncollections:\n  Collection_abc: t_abc123\npages:\n  - page: ...",
-                  pageCount: 5,
+                  version: '1.0',
+                  exported_at: '2026-02-26T14:30:00.000Z',
+                  collections: { Collection_abc: 't_abc123' },
+                  pages: [{ page: { page: { title: 'Example' }, layout: { rows: [] }, blocks: {} } }],
+                  pageCount: 1,
                 },
               },
             },

@@ -1,7 +1,7 @@
 /**
  * Page Exporter Service
  *
- * Exports existing NocoBase UI pages to YAML configuration format.
+ * Exports existing NocoBase UI pages to JSON configuration format.
  *
  * Uses NocoBase's flowModelTreePath closure table for reliable tree traversal
  * across all page types (regular pages, flowPages, tabs pages).
@@ -22,7 +22,6 @@ import type {
   UISnapshotConfig,
 } from '../types';
 import { RouteResolver } from './route-resolver';
-import { toYaml } from './yaml-parser';
 
 export class PageExporter {
   private routeResolver: RouteResolver;
@@ -32,12 +31,12 @@ export class PageExporter {
   }
 
   /**
-   * Export a single page to YAML by its route path
+   * Export a single page by its route path
    *
    * Uses the closure table (flowModelTreePath) to reliably get all
    * flowModels in the page's tree.
    */
-  async exportByPath(path: string): Promise<string> {
+  async exportByPath(path: string): Promise<PageConfig> {
     console.log(`[PageExporter] exportByPath called with path: "${path}"`);
 
     const resolved = await this.routeResolver.resolveByPath(path);
@@ -52,13 +51,13 @@ export class PageExporter {
     const config = await this.buildPageConfig(resolved.pageUid, resolved.title, path);
     console.log(`[PageExporter] Page config built successfully`);
 
-    return toYaml(config);
+    return config;
   }
 
   /**
-   * Export all pages to a single YAML snapshot
+   * Export all pages to a single snapshot object
    */
-  async exportAllPages(): Promise<string> {
+  async exportAllPages(): Promise<UISnapshotConfig> {
     const pages = await this.routeResolver.getAllPagePaths();
     const configs: PageConfig[] = [];
     const allCollections: Record<string, string> = {};
@@ -82,14 +81,12 @@ export class PageExporter {
       }
     }
 
-    const snapshot: UISnapshotConfig = {
+    return {
       version: '1.0',
       exported_at: new Date().toISOString(),
       collections: allCollections,
       pages: configs.map((config) => ({ page: config })),
     };
-
-    return toYaml(snapshot as any);
   }
 
   /**
@@ -432,6 +429,7 @@ export class PageExporter {
 
   /**
    * Update layout block references with proper names
+   * Filters out orphaned references (UIDs that don't map to exported blocks)
    */
   private updateLayoutBlockRefs(layout: LayoutConfig, blockModels: any[], blocks: Record<string, BlockConfig>): void {
     // Create UID to name mapping
@@ -444,14 +442,17 @@ export class PageExporter {
       }
     });
 
-    // Update refs in layout
+    // Update refs in layout, filtering out orphaned references
     for (const row of layout.rows) {
       for (const col of row.columns) {
-        col.blocks = col.blocks.map((ref) => {
-          const uid = ref.$ref.replace('#/blocks/', '');
-          const name = uidToName[uid] || uid;
-          return { $ref: `#/blocks/${name}` };
-        });
+        col.blocks = col.blocks
+          .map((ref) => {
+            const uid = ref.$ref.replace('#/blocks/', '');
+            const name = uidToName[uid];
+            // Only include refs that map to exported blocks
+            return name ? { $ref: `#/blocks/${name}` } : null;
+          })
+          .filter((ref): ref is { $ref: string } => ref !== null);
       }
     }
   }

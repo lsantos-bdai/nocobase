@@ -1,9 +1,8 @@
 /**
- * YAML Parser Service
+ * JSON Parser Service
  *
- * Parses and validates YAML configuration files for UI snapshots.
+ * Parses and validates JSON configuration files for UI snapshots.
  */
-import * as yaml from 'js-yaml';
 import type {
   PageConfig,
   PageSettings,
@@ -26,26 +25,14 @@ export interface ValidationResult {
 }
 
 /**
- * Parse YAML string into PageConfig
+ * Parse JSON string into PageConfig
  */
-export function parseYaml(yamlContent: string): PageConfig {
-  const parsed = yaml.load(yamlContent) as PageConfig;
+export function parseConfig(jsonContent: string): PageConfig {
+  const parsed = JSON.parse(jsonContent) as PageConfig;
   if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Invalid YAML: expected an object');
+    throw new Error('Invalid JSON: expected an object');
   }
   return parsed;
-}
-
-/**
- * Convert PageConfig back to YAML string
- */
-export function toYaml(config: PageConfig): string {
-  return yaml.dump(config, {
-    indent: 2,
-    lineWidth: 120,
-    noRefs: true,
-    sortKeys: false,
-  });
 }
 
 /**
@@ -152,7 +139,7 @@ function validateLayout(layout: LayoutConfig, blocks: Record<string, BlockConfig
           continue;
         }
 
-        // Extract block name from $ref (e.g., "#/blocks/workstation_table" → "workstation_table")
+        // Extract block name from $ref (e.g., "#/blocks/workstation_table" -> "workstation_table")
         const match = blockRef.$ref.match(/^#\/blocks\/(.+)$/);
         if (!match) {
           errors.push(`Invalid block reference format: ${blockRef.$ref} (expected #/blocks/<name>)`);

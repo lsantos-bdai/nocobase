@@ -1,7 +1,7 @@
 /**
- * YAML Configuration Types for UI Snapshot Plugin
+ * JSON Configuration Types for UI Snapshot Plugin
  *
- * These types define the structure of YAML configuration files used to
+ * These types define the structure of JSON configuration files used to
  * define and recreate NocoBase UI pages programmatically.
  */
 
@@ -297,10 +297,9 @@ export interface GridSettings {
 // ============================================================================
 
 /**
- * Create action request body
+ * Create action request body - accepts PageConfig fields directly plus force option
  */
-export interface CreateRequest {
-  yaml: string;
+export interface CreateRequest extends PageConfig {
   force?: boolean;
 }
 
@@ -331,10 +330,9 @@ export interface DeleteResponse {
 }
 
 /**
- * Export action response (returns YAML string directly)
+ * Export action response (returns page config object directly)
  */
-export interface ExportResponse {
-  yaml: string;
+export interface ExportResponse extends PageConfig {
   path: string;
 }
 
