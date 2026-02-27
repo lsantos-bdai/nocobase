@@ -69,13 +69,6 @@ export default {
           path: { type: 'string' },
         },
       },
-      DeleteRequest: {
-        type: 'object',
-        required: ['path'],
-        properties: {
-          path: { type: 'string' },
-        },
-      },
       DeleteResponse: {
         type: 'object',
         properties: {
@@ -130,19 +123,21 @@ export default {
       post: {
         tags: ['ui-snapshot'],
         summary: 'Delete page',
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/DeleteRequest' },
-            },
+        parameters: [
+          {
+            name: 'path',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Route path of the page to delete (e.g., "Parent/PageName")',
           },
-        },
+        ],
         responses: {
           200: {
             description: 'Page deleted',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/DeleteResponse' } } },
           },
+          400: { description: 'Missing required parameter: path' },
           404: { description: 'Page not found' },
         },
       },

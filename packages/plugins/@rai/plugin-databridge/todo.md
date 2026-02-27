@@ -149,5 +149,7 @@
 ## ui snapshot
 - [X] sortable/quick edit for fields capture on export
 - [X] action bar not captured
-- [ ] position of fields is incorrect
+- [X] position of fields is incorrect
 - [ ] position of charts/tables/blocks are incorrect
+- [ ] /ui-snapshot:delete should just take in a param not a body
+- [ ] what is the intention of exportAll?

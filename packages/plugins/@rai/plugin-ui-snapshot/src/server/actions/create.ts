@@ -116,6 +116,27 @@ function remapUids(model: any, uidMap: Map<string, string>): any {
     result.parentId = uidMap.get(result.parentId);
   }
 
+  // Remap UIDs in stepParams.gridSettings.grid.rows (column layout)
+  if (result.stepParams?.gridSettings?.grid?.rows) {
+    const oldRows = result.stepParams.gridSettings.grid.rows;
+    const newRows: Record<string, string[][]> = {};
+    for (const [rowKey, cells] of Object.entries(oldRows)) {
+      newRows[rowKey] = (cells as string[][]).map((column) =>
+        column.map((uid) => uidMap.get(uid) || uid),
+      );
+    }
+    result.stepParams = {
+      ...result.stepParams,
+      gridSettings: {
+        ...result.stepParams.gridSettings,
+        grid: {
+          ...result.stepParams.gridSettings.grid,
+          rows: newRows,
+        },
+      },
+    };
+  }
+
   if (result.subModels) {
     const newSubModels: Record<string, any> = {};
     for (const [key, value] of Object.entries(result.subModels)) {

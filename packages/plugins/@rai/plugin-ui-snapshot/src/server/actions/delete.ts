@@ -1,26 +1,26 @@
 /**
  * Delete Action
  *
- * POST /api/ui-snapshot:delete
+ * POST /api/ui-snapshot:delete?path=Parent/PageName
  *
  * Deletes a UI page by its route path.
  */
 import { Context, Next } from '@nocobase/actions';
 import { RouteResolver } from '../services/route-resolver';
-import type { DeleteRequest, DeleteResponse } from '../types';
+import type { DeleteResponse } from '../types';
 
 export async function deleteAction(ctx: Context, next: Next) {
-  const body = ctx.request.body as DeleteRequest;
+  const path = ctx.action.params.path as string;
 
-  if (!body?.path || typeof body.path !== 'string') {
-    ctx.throw(400, 'Missing required field: path');
+  if (!path || typeof path !== 'string') {
+    ctx.throw(400, 'Missing required parameter: path');
   }
 
   const routeResolver = new RouteResolver(ctx.db);
-  const resolved = await routeResolver.resolveByPath(body.path);
+  const resolved = await routeResolver.resolveByPath(path);
 
   if (!resolved) {
-    ctx.throw(404, `Page not found at path: ${body.path}`);
+    ctx.throw(404, `Page not found at path: ${path}`);
   }
 
   // Delete flowModels
@@ -53,7 +53,7 @@ export async function deleteAction(ctx: Context, next: Next) {
 
   const response: DeleteResponse = {
     deleted: true,
-    path: body.path,
+    path,
     flowModelsDeleted,
   };
 

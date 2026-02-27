@@ -81,10 +81,6 @@ export interface CreateResponse {
   path: string;
 }
 
-export interface DeleteRequest {
-  path: string;
-}
-
 export interface DeleteResponse {
   deleted: boolean;
   path: string;
