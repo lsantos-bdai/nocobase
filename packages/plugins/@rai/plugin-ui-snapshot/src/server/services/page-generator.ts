@@ -106,39 +106,36 @@ export class PageGenerator {
   }
 
   /**
-   * Delete a flowModel and all its descendants
+   * Delete a flowModel and all its descendants using the specialized repository method.
+   *
+   * FlowModelRepository.remove() properly handles:
+   * - Deleting all descendants via the closure table
+   * - Cleaning up tree path entries
    */
   private async deleteFlowModelTree(rootUid: string): Promise<number> {
-    const repo = this.db.getRepository('flowModels');
-    let deleted = 0;
-
-    // Get all descendants using the tree path
-    // NocoBase uses a closure table for flowModel hierarchy
     try {
+      const repo = this.getFlowModelRepository();
+
+      // Count descendants before deletion
       const descendants = await this.db.sequelize.query(
-        `SELECT descendant FROM "flowModelTreePath" WHERE ancestor = :rootUid`,
+        `SELECT COUNT(*) as count FROM "flowModelTreePath" WHERE ancestor = :rootUid`,
         {
           replacements: { rootUid },
           type: 'SELECT',
         }
-      ) as Array<{ descendant: string }>;
+      ) as Array<{ count: string }>;
 
-      // Delete all descendants
-      for (const { descendant } of descendants) {
-        await repo.destroy({
-          filter: { uid: descendant },
-        });
-        deleted++;
-      }
-    } catch {
-      // Fallback: just delete the root
-      await repo.destroy({
-        filter: { uid: rootUid },
-      });
-      deleted = 1;
+      const count = parseInt(descendants[0]?.count || '0', 10);
+
+      // Use the specialized remove method which handles tree deletion
+      await repo.remove(rootUid);
+
+      return count;
+    } catch (err) {
+      // Log but don't fail - the page deletion might still succeed
+      console.error('Failed to delete flowModel tree:', err);
+      return 0;
     }
-
-    return deleted;
   }
 
   /**
@@ -151,8 +148,9 @@ export class PageGenerator {
    *
    * The BlockGridModel's parentId must point to the tabs schemaUid for proper rendering.
    *
-   * CRITICAL: All flowModels are created with parentId, subKey, subType from the start.
+   * CRITICAL: Each flowModel must be saved SEPARATELY with parentId, subKey, subType.
    * This ensures the closure table (flowModelTreePath) is populated correctly.
+   * See: nocobase-ui-manipulation.md lines 282-333 for the complete working example.
    */
   private async createPage(
     config: ValidatedPageConfig,
@@ -187,19 +185,8 @@ export class PageGenerator {
     // Step 5: Create RootPageModel flowModel (parentId is the schemaUid for FlowRoute binding)
     await this.createRootPageModel(pageUid, schemaUid, title);
 
-    // Step 6: Build all block models as nested subModels structure
-    // This is CRITICAL - the API requires subModels for proper tree path creation
-    const blockItems: Record<string, unknown>[] = [];
-    let sortIndex = 1; // Start at 1 like the GUI does
-
-    for (const [blockName, blockConfig] of Object.entries(config.blocks)) {
-      const blockUid = blockUids[blockName];
-      const blockModel = await this.buildBlockModel(blockConfig, blockUid, gridUid, sortIndex, collections);
-      blockItems.push(blockModel);
-      sortIndex++;
-    }
-
-    // Step 7: Build BlockGridModel with blocks nested in subModels.items
+    // Step 6: Create BlockGridModel FIRST (without nested subModels)
+    // The parentId must be the tabs schemaUid, NOT the page schemaUid!
     const blockGrid = generateBlockGrid(
       { layout: config.layout, blockUids },
       tabsSchemaUid,
@@ -209,19 +196,37 @@ export class PageGenerator {
     blockGrid.flowModel.uid = gridUid;
     blockGrid.flowModel.parentId = tabsSchemaUid;
 
-    // Add async flag and subModels for proper API save
-    // Match GUI pattern: {"uid":"...","parentId":"...","subKey":"grid","async":true,"subType":"object","use":"BlockGridModel","stepParams":{},"sortIndex":0,"flowRegistry":{},"filterManager":[]}
-    const gridWithSubModels = {
-      ...blockGrid.flowModel,
+    // Save BlockGridModel with empty stepParams first
+    // Grid layout will be updated AFTER blocks are created
+    await this.saveFlowModelViaApi({
+      uid: gridUid,
+      parentId: tabsSchemaUid,
+      subKey: 'grid',
       async: true,
-      filterManager: [],  // GUI includes this
-      subModels: {
-        items: blockItems,
-      },
-    };
+      subType: 'object',
+      use: 'BlockGridModel',
+      stepParams: {},  // Empty initially
+      sortIndex: 0,
+      flowRegistry: {},
+      filterManager: [],
+    });
 
-    // Step 8: Save the entire grid hierarchy in one API call
-    await this.saveFlowModelViaApi(gridWithSubModels);
+    // Step 7: Create each block INDIVIDUALLY with parentId = gridUid
+    let sortIndex = 1;
+    for (const [blockName, blockConfig] of Object.entries(config.blocks)) {
+      const blockUid = blockUids[blockName];
+      await this.createBlock(blockConfig, blockUid, gridUid, sortIndex, collections);
+      sortIndex++;
+    }
+
+    // Step 8: Update BlockGridModel with the grid layout
+    // Now that all blocks exist, update the grid settings
+    await this.saveFlowModelViaApi({
+      uid: gridUid,
+      stepParams: {
+        gridSettings: blockGrid.flowModel.stepParams?.gridSettings,
+      },
+    });
 
     const routePath = parentPath ? `${parentPath}/${title}` : title;
 
@@ -231,6 +236,225 @@ export class PageGenerator {
       blocksCreated: Object.keys(config.blocks).length,
       path: routePath,
     };
+  }
+
+  /**
+   * Create a single block with all its children saved individually
+   */
+  private async createBlock(
+    config: BlockConfig,
+    uid: string,
+    parentGridUid: string,
+    sortIndex: number,
+    collections: Record<string, string>
+  ): Promise<void> {
+    // Resolve collection name if present
+    let collectionName = '';
+    if ('collection' in config && config.collection) {
+      collectionName = resolveCollection(config.collection, collections);
+    }
+
+    switch (config.type) {
+      case 'TableBlockModel':
+        await this.createTableBlock(config as TableBlockConfig, uid, parentGridUid, sortIndex, collectionName);
+        break;
+      case 'ChartBlockModel':
+        await this.createChartBlock(config as ChartBlockConfig, uid, parentGridUid, sortIndex, collectionName);
+        break;
+      case 'DetailsBlockModel':
+        await this.createDetailsBlock(config as DetailsBlockConfig, uid, parentGridUid, sortIndex, collectionName);
+        break;
+      case 'FormBlockModel':
+        await this.createFormBlock(config as FormBlockConfig, uid, parentGridUid, sortIndex, collectionName);
+        break;
+      case 'MarkdownBlockModel':
+        await this.createMarkdownBlock(config, uid, parentGridUid, sortIndex);
+        break;
+      default:
+        throw new Error(`Unknown block type: ${config.type}`);
+    }
+  }
+
+  /**
+   * Create a TableBlockModel with columns and actions saved individually
+   */
+  private async createTableBlock(
+    config: TableBlockConfig,
+    uid: string,
+    parentGridUid: string,
+    sortIndex: number,
+    collectionName: string
+  ): Promise<void> {
+    const table = generateTable(config, collectionName, parentGridUid, sortIndex);
+    table.uid = uid;
+    table.flowModel.uid = uid;
+
+    // Save the table block first
+    await this.saveFlowModelViaApi(table.flowModel as Record<string, unknown>);
+
+    // Save each column individually
+    for (const col of table.columns) {
+      col.flowModel.parentId = uid;
+      await this.saveFlowModelViaApi(col.flowModel as Record<string, unknown>);
+    }
+
+    // Save each action individually
+    for (const action of table.actions) {
+      action.flowModel.parentId = uid;
+      await this.saveFlowModelViaApi(action.flowModel as Record<string, unknown>);
+    }
+  }
+
+  /**
+   * Create a ChartBlockModel with proper initialization
+   *
+   * Charts require a 3-step process to render properly:
+   * 1. Create the chart flowModel
+   * 2. Call charts:query to fetch/initialize the data
+   * 3. Save the flowModel again to persist the configuration
+   */
+  private async createChartBlock(
+    config: ChartBlockConfig,
+    uid: string,
+    parentGridUid: string,
+    sortIndex: number,
+    collectionName: string
+  ): Promise<void> {
+    const chart = generateChart(config, collectionName, parentGridUid, sortIndex);
+    chart.uid = uid;
+    chart.flowModel.uid = uid;
+
+    // Step 1: Create the chart flowModel
+    await this.saveFlowModelViaApi(chart.flowModel as Record<string, unknown>);
+
+    // Step 2: Query the chart data to initialize it
+    await this.queryChartData(collectionName, config.chart.dimension, config.chart.measure.field);
+
+    // Step 3: Save again to persist the configuration
+    await this.saveFlowModelViaApi(chart.flowModel as Record<string, unknown>);
+  }
+
+  /**
+   * Query chart data to initialize the chart
+   *
+   * This mimics what the GUI does when configuring a chart.
+   * Without this call, charts may show "Please configure chart" instead of rendering.
+   */
+  private async queryChartData(
+    collectionName: string,
+    dimension: string,
+    measureField: string
+  ): Promise<void> {
+    try {
+      const chartsResource = this.app.resourceManager.getResource('charts');
+      if (chartsResource) {
+        // Use the resource action directly
+        await this.app.resourceManager.execute({
+          resource: 'charts',
+          action: 'query',
+          params: {
+            values: {
+              mode: 'builder',
+              dataSource: 'main',
+              collection: collectionName,
+              measures: [{ field: [measureField], aggregation: 'count', alias: measureField }],
+              dimensions: [{ field: [dimension] }],
+              orders: [],
+            },
+          },
+        });
+      }
+    } catch (err) {
+      // Log but don't fail - chart might still work on page refresh
+      console.warn('Failed to query chart data:', err);
+    }
+  }
+
+  /**
+   * Create a DetailsBlockModel with items and actions saved individually
+   */
+  private async createDetailsBlock(
+    config: DetailsBlockConfig,
+    uid: string,
+    parentGridUid: string,
+    sortIndex: number,
+    collectionName: string
+  ): Promise<void> {
+    const details = generateDetails(config, collectionName, parentGridUid, sortIndex);
+    details.uid = uid;
+    details.flowModel.uid = uid;
+
+    // Save the details block first
+    await this.saveFlowModelViaApi(details.flowModel as Record<string, unknown>);
+
+    // Save each item individually
+    for (const item of details.items) {
+      item.flowModel.parentId = uid;
+      await this.saveFlowModelViaApi(item.flowModel as Record<string, unknown>);
+    }
+
+    // Save each action individually
+    for (const action of details.actions) {
+      action.flowModel.parentId = uid;
+      await this.saveFlowModelViaApi(action.flowModel as Record<string, unknown>);
+    }
+  }
+
+  /**
+   * Create a FormBlockModel with items and actions saved individually
+   */
+  private async createFormBlock(
+    config: FormBlockConfig,
+    uid: string,
+    parentGridUid: string,
+    sortIndex: number,
+    collectionName: string
+  ): Promise<void> {
+    const form = generateForm(config, collectionName, parentGridUid, sortIndex);
+    form.uid = uid;
+    form.flowModel.uid = uid;
+
+    // Save the form block first
+    await this.saveFlowModelViaApi(form.flowModel as Record<string, unknown>);
+
+    // Save each item individually
+    for (const item of form.items) {
+      item.flowModel.parentId = uid;
+      await this.saveFlowModelViaApi(item.flowModel as Record<string, unknown>);
+    }
+
+    // Save submit action if present
+    if (form.submitAction) {
+      form.submitAction.flowModel.parentId = uid;
+      await this.saveFlowModelViaApi(form.submitAction.flowModel as Record<string, unknown>);
+    }
+  }
+
+  /**
+   * Create a MarkdownBlockModel (no children)
+   */
+  private async createMarkdownBlock(
+    config: { type: string; content?: string },
+    uid: string,
+    parentGridUid: string,
+    sortIndex: number
+  ): Promise<void> {
+    await this.saveFlowModelViaApi({
+      uid,
+      use: 'MarkdownBlockModel',
+      parentId: parentGridUid,
+      subKey: 'items',
+      subType: 'array',
+      sortIndex,
+      stepParams: {
+        markdownSettings: {
+          init: {
+            content: (config as any).content || '',
+          },
+        },
+      },
+      flowRegistry: {},
+    });
   }
 
   /**
@@ -260,212 +484,48 @@ export class PageGenerator {
   }
 
   /**
-   * Save a flowModel using the FlowModelRepository.upsertModel() method.
+   * Get the FlowModelRepository with proper type.
    *
-   * NOTE: This may not properly create tree path entries for nested structures.
-   * For full hierarchy with children, use saveFlowModelViaApi() instead.
+   * CRITICAL: Use db.getCollection('flowModels').repository, NOT db.getRepository('flowModels').
+   * The collection is configured with repository: 'FlowModelRepository' which provides
+   * the specialized upsertModel() method. db.getRepository() returns a generic Repository
+   * without these methods.
    */
-  private async saveFlowModel(flowModel: Partial<FlowModel>): Promise<string> {
-    const repo = this.db.getRepository('flowModels') as any;
-    return repo.upsertModel(flowModel);
+  private getFlowModelRepository() {
+    const collection = this.db.getCollection('flowModels');
+    if (!collection) {
+      throw new Error('flowModels collection not found - is plugin-flow-engine loaded?');
+    }
+
+    const repo = collection.repository as any;
+    if (!repo.upsertModel) {
+      throw new Error('FlowModelRepository.upsertModel() not available - repository type mismatch');
+    }
+
+    return repo;
   }
 
   /**
-   * Save a flowModel using the FlowModelRepository's saveModel method.
+   * Save a flowModel using the FlowModelRepository.upsertModel() method.
    *
    * This properly handles subModels and creates tree path entries correctly,
    * similar to what the flowModels:save API endpoint does.
+   *
+   * The upsertModel method recursively processes the model structure:
+   * - Extracts nested subModels
+   * - Converts to flat nodes with proper childOptions
+   * - Inserts each node with tree path entries via insertSingleNode
    */
   private async saveFlowModelViaApi(flowModel: Record<string, unknown>): Promise<string> {
-    const repo = this.db.getRepository('flowModels') as any;
+    const repo = this.getFlowModelRepository();
 
-    // Use saveModel which handles nested subModels correctly
-    // This is the same method the flowModels:save action uses
-    if (repo.saveModel) {
-      return repo.saveModel(flowModel);
+    const uid = await repo.upsertModel(flowModel);
+
+    if (!uid) {
+      throw new Error(`upsertModel returned falsy uid for flowModel: ${flowModel.uid}`);
     }
 
-    // Fallback to upsertModel if saveModel doesn't exist
-    return repo.upsertModel(flowModel);
-  }
-
-  /**
-   * Build a block model with its children as nested subModels.
-   *
-   * This creates the nested structure required by the flowModels:save API
-   * for proper tree path creation.
-   */
-  private async buildBlockModel(
-    config: BlockConfig,
-    uid: string,
-    parentGridUid: string,
-    sortIndex: number,
-    collections: Record<string, string>
-  ): Promise<Record<string, unknown>> {
-    // Resolve collection name if present
-    let collectionName = '';
-    if ('collection' in config && config.collection) {
-      collectionName = resolveCollection(config.collection, collections);
-    }
-
-    switch (config.type) {
-      case 'TableBlockModel':
-        return this.buildTableBlockModel(config as TableBlockConfig, uid, parentGridUid, sortIndex, collectionName);
-      case 'ChartBlockModel':
-        return this.buildChartBlockModel(config as ChartBlockConfig, uid, parentGridUid, sortIndex, collectionName);
-      case 'DetailsBlockModel':
-        return this.buildDetailsBlockModel(config as DetailsBlockConfig, uid, parentGridUid, sortIndex, collectionName);
-      case 'FormBlockModel':
-        return this.buildFormBlockModel(config as FormBlockConfig, uid, parentGridUid, sortIndex, collectionName);
-      case 'MarkdownBlockModel':
-        return this.buildMarkdownBlockModel(config, uid, parentGridUid, sortIndex);
-      default:
-        throw new Error(`Unknown block type: ${config.type}`);
-    }
-  }
-
-  /**
-   * Build a TableBlockModel with columns and actions as nested subModels
-   */
-  private buildTableBlockModel(
-    config: TableBlockConfig,
-    uid: string,
-    parentGridUid: string,
-    sortIndex: number,
-    collectionName: string
-  ): Record<string, unknown> {
-    const table = generateTable(config, collectionName, parentGridUid, sortIndex);
-    table.uid = uid;
-    table.flowModel.uid = uid;
-
-    // Build nested subModels structure
-    const columns = table.columns.map((col) => {
-      col.flowModel.parentId = uid;
-      return col.flowModel;
-    });
-
-    const actions = table.actions.map((action) => {
-      action.flowModel.parentId = uid;
-      return action.flowModel;
-    });
-
-    return {
-      ...table.flowModel,
-      subModels: {
-        columns,
-        actions,
-      },
-    };
-  }
-
-  /**
-   * Build a ChartBlockModel (no children)
-   */
-  private buildChartBlockModel(
-    config: ChartBlockConfig,
-    uid: string,
-    parentGridUid: string,
-    sortIndex: number,
-    collectionName: string
-  ): Record<string, unknown> {
-    const chart = generateChart(config, collectionName, parentGridUid, sortIndex);
-    chart.uid = uid;
-    chart.flowModel.uid = uid;
-    return chart.flowModel as Record<string, unknown>;
-  }
-
-  /**
-   * Build a DetailsBlockModel with items and actions as nested subModels
-   */
-  private buildDetailsBlockModel(
-    config: DetailsBlockConfig,
-    uid: string,
-    parentGridUid: string,
-    sortIndex: number,
-    collectionName: string
-  ): Record<string, unknown> {
-    const details = generateDetails(config, collectionName, parentGridUid, sortIndex);
-    details.uid = uid;
-    details.flowModel.uid = uid;
-
-    const items = details.items.map((item) => {
-      item.flowModel.parentId = uid;
-      return item.flowModel;
-    });
-
-    const actions = details.actions.map((action) => {
-      action.flowModel.parentId = uid;
-      return action.flowModel;
-    });
-
-    return {
-      ...details.flowModel,
-      subModels: {
-        items,
-        actions,
-      },
-    };
-  }
-
-  /**
-   * Build a FormBlockModel with items and actions as nested subModels
-   */
-  private buildFormBlockModel(
-    config: FormBlockConfig,
-    uid: string,
-    parentGridUid: string,
-    sortIndex: number,
-    collectionName: string
-  ): Record<string, unknown> {
-    const form = generateForm(config, collectionName, parentGridUid, sortIndex);
-    form.uid = uid;
-    form.flowModel.uid = uid;
-
-    const items = form.items.map((item) => {
-      item.flowModel.parentId = uid;
-      return item.flowModel;
-    });
-
-    const actions: Record<string, unknown>[] = [];
-    if (form.submitAction) {
-      form.submitAction.flowModel.parentId = uid;
-      actions.push(form.submitAction.flowModel as Record<string, unknown>);
-    }
-
-    return {
-      ...form.flowModel,
-      subModels: {
-        items,
-        actions,
-      },
-    };
-  }
-
-  /**
-   * Build a MarkdownBlockModel (no children)
-   */
-  private buildMarkdownBlockModel(
-    config: { type: string; content?: string },
-    uid: string,
-    parentGridUid: string,
-    sortIndex: number
-  ): Record<string, unknown> {
-    return {
-      uid,
-      use: 'MarkdownBlockModel',
-      parentId: parentGridUid,
-      subKey: 'items',
-      subType: 'array',
-      sortIndex,
-      stepParams: {
-        markdownSettings: {
-          init: {
-            content: (config as any).content || '',
-          },
-        },
-      },
-      flowRegistry: {},
-    };
+    return uid;
   }
 
   /**

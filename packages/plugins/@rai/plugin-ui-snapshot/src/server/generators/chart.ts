@@ -34,11 +34,12 @@ export function generateChart(
   const { chart } = config;
 
   // Build query configuration
+  // Only include alias if defined - undefined values can cause issues
   const measures = [
     {
       field: [chart.measure.field],
       aggregation: chart.measure.aggregation,
-      alias: chart.measure.alias,
+      ...(chart.measure.alias && { alias: chart.measure.alias }),
     },
   ];
 
@@ -47,7 +48,7 @@ export function generateChart(
     measures.push({
       field: [chart.secondaryMeasure.field],
       aggregation: chart.secondaryMeasure.aggregation,
-      alias: chart.secondaryMeasure.alias,
+      ...(chart.secondaryMeasure.alias && { alias: chart.secondaryMeasure.alias }),
     });
   }
 
@@ -117,13 +118,12 @@ function buildChartOption(
         ...baseOptions,
         builder: {
           ...baseOptions.builder,
-          colorField: dimension,
-          angleField: measureField,
-          label: options?.labelType
-            ? {
-                type: options.labelType,
-              }
-            : undefined,
+          label: false,
+          pieCategory: dimension,
+          pieValue: measureField,
+          pieRadiusInner: 0,
+          pieRadiusOuter: 70,
+          pieLabelType: options?.labelType || 'percent',
         },
       };
 

@@ -89,7 +89,10 @@ export function generateTable(
 }
 
 /**
- * Generate a TableColumnModel
+ * Generate a TableColumnModel with nested field subModel
+ *
+ * CRITICAL: Each column needs a nested `subModels.field` with the display model.
+ * Without this, the column won't render data properly.
  *
  * @param config - Column configuration
  * @param collectionName - Resolved collection name
@@ -97,12 +100,19 @@ export function generateTable(
  * @param sortIndex - Position among columns
  */
 function generateTableColumn(
-  config: { field: string; title?: string; width?: number; sortable?: boolean; fixed?: 'left' | 'right' },
+  config: { field: string; title?: string; width?: number; sortable?: boolean; fixed?: 'left' | 'right'; fieldType?: string },
   collectionName: string,
   tableUid: string,
   sortIndex: number
 ): GeneratedTableColumn {
   const uid = generateUid();
+  const fieldUid = generateUid();
+
+  // Determine display model based on field type
+  // Default to DisplayTextFieldModel, use DisplayCheckboxFieldModel for boolean fields
+  const displayModel = config.fieldType === 'checkbox' || config.fieldType === 'boolean'
+    ? 'DisplayCheckboxFieldModel'
+    : 'DisplayTextFieldModel';
 
   const stepParams: Record<string, unknown> = {
     fieldSettings: {
@@ -112,23 +122,26 @@ function generateTableColumn(
         fieldPath: config.field,
       },
     },
-    columnSettings: {
-      init: {},
+    tableColumnSettings: {
+      model: {
+        use: displayModel,
+      },
     },
   };
 
   // Add optional settings
   if (config.width) {
-    (stepParams.columnSettings as any).init.width = config.width;
+    (stepParams as any).tableColumnSettings.width = config.width;
   }
   if (config.sortable !== undefined) {
-    (stepParams.columnSettings as any).init.sortable = config.sortable;
+    (stepParams as any).tableColumnSettings.sortable = config.sortable;
   }
   if (config.fixed) {
-    (stepParams.columnSettings as any).init.fixed = config.fixed;
+    (stepParams as any).tableColumnSettings.fixed = config.fixed;
   }
 
-  // Include parent relationship from the start
+  // Include parent relationship and nested subModels from the start
+  // The nested field subModel is CRITICAL for the column to render data
   const flowModel: Partial<FlowModel> = {
     uid,
     use: 'TableColumnModel',
@@ -137,6 +150,19 @@ function generateTableColumn(
     subType: 'array',
     sortIndex,
     stepParams,
+    subModels: {
+      field: {
+        uid: fieldUid,
+        use: displayModel,
+        props: null,
+        parentId: uid,
+        subKey: 'field',
+        subType: 'object',
+        stepParams: {},
+        sortIndex: 0,
+        flowRegistry: {},
+      },
+    },
     flowRegistry: {},
   };
 

@@ -103,6 +103,7 @@ export interface TableColumnConfig {
   sortable?: boolean;
   fixed?: 'left' | 'right';
   hidden?: boolean;
+  fieldType?: 'text' | 'checkbox' | 'boolean'; // Display model type
 }
 
 /**
