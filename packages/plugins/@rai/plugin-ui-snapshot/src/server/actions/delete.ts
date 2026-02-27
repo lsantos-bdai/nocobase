@@ -4,61 +4,61 @@
  * POST /api/ui-snapshot:delete
  *
  * Deletes a UI page by its route path.
- *
- * Request body:
- * {
- *   "path": "EngOps/Workstations"
- * }
- *
- * Response:
- * {
- *   "deleted": true,
- *   "path": "EngOps/Workstations",
- *   "flowModelsDeleted": 15
- * }
  */
 import { Context, Next } from '@nocobase/actions';
-import { PageGenerator } from '../services/page-generator';
+import { RouteResolver } from '../services/route-resolver';
 import type { DeleteRequest, DeleteResponse } from '../types';
 
 export async function deleteAction(ctx: Context, next: Next) {
   const body = ctx.request.body as DeleteRequest;
 
-  // Validate request
-  if (!body || !body.path) {
+  if (!body?.path || typeof body.path !== 'string') {
     ctx.throw(400, 'Missing required field: path');
   }
 
-  if (typeof body.path !== 'string') {
-    ctx.throw(400, 'Field path must be a string');
+  const routeResolver = new RouteResolver(ctx.db);
+  const resolved = await routeResolver.resolveByPath(body.path);
+
+  if (!resolved) {
+    ctx.throw(404, `Page not found at path: ${body.path}`);
   }
 
+  // Delete flowModels
+  let flowModelsDeleted = 0;
   try {
-    const generator = new PageGenerator(ctx.db, ctx.app);
-    const result = await generator.deleteByPath(body.path);
+    const flowModelRepo = ctx.db.getCollection('flowModels').repository as any;
 
-    const response: DeleteResponse = {
-      deleted: result.deleted,
-      path: body.path,
-      flowModelsDeleted: result.flowModelsDeleted,
-    };
+    // Count descendants before deletion
+    const descendants = await ctx.db.sequelize.query(
+      `SELECT COUNT(*) as count FROM "flowModelTreePath" WHERE ancestor = :rootUid`,
+      { replacements: { rootUid: resolved.pageUid }, type: 'SELECT' }
+    ) as Array<{ count: string }>;
+    flowModelsDeleted = parseInt(descendants[0]?.count || '0', 10);
 
-    ctx.body = response;
-    ctx.withoutDataWrapping = true;
-  } catch (err: any) {
-    if (err.message?.includes('not found')) {
-      ctx.status = 404;
-      ctx.body = {
-        error: 'Not found',
-        message: err.message,
-      };
-      ctx.withoutDataWrapping = true;
-      return next();
-    }
-
-    // Re-throw unknown errors
-    throw err;
+    await flowModelRepo.remove(resolved.pageUid);
+  } catch (err) {
+    console.error('Failed to delete flowModel tree:', err);
   }
+
+  // Delete uiSchema
+  try {
+    const uiSchemaRepo = ctx.db.getRepository('uiSchemas');
+    await uiSchemaRepo.destroy({ filter: { 'x-uid': resolved.schemaUid } });
+  } catch {
+    // May not exist
+  }
+
+  // Delete route
+  await routeResolver.deleteRoute(resolved.routeId);
+
+  const response: DeleteResponse = {
+    deleted: true,
+    path: body.path,
+    flowModelsDeleted,
+  };
+
+  ctx.body = response;
+  ctx.withoutDataWrapping = true;
 
   await next();
 }

@@ -1,9 +1,8 @@
 import { Plugin } from '@nocobase/client';
-import models from './models';
 
 export class PluginUiSnapshotClient extends Plugin {
   async load() {
-    this.flowEngine.registerModels(models);
+    // API-only plugin - no client-side models
   }
 }
 

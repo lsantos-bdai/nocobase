@@ -146,3 +146,8 @@
 
 
 
+## ui snapshot
+- [X] sortable/quick edit for fields capture on export
+- [X] action bar not captured
+- [ ] position of fields is incorrect
+- [ ] position of charts/tables/blocks are incorrect

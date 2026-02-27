@@ -3,81 +3,125 @@
  *
  * POST /api/ui-snapshot:create
  *
- * Creates a UI page from configuration object.
- *
- * Request body:
- * {
- *   "page": {"title": "Workstations", "route": "EngOps/Workstations"},
- *   "layout": {"rows": [...]},
- *   "blocks": {...},
- *   "collections": {...},  // Optional
- *   "force": false         // Optional - if true, deletes existing page first
- * }
- *
- * Response:
- * {
- *   "routeId": 123,
- *   "pageUid": "abc123xyz",
- *   "blocksCreated": 3,
- *   "path": "EngOps/Workstations"
- * }
+ * Creates a page from a PageSnapshot (same format as export).
  */
 import { Context, Next } from '@nocobase/actions';
-import { PageGenerator } from '../services/page-generator';
-import type { CreateRequest, PageConfig } from '../types';
+import type { CreateRequest, CreateResponse } from '../types';
+import { RouteResolver } from '../services/route-resolver';
+import { generateUid } from '../generators/uid';
 
 export async function create(ctx: Context, next: Next) {
   const body = ctx.request.body as CreateRequest;
 
-  // Validate request - check for required page field
-  if (!body || !body.page) {
-    ctx.throw(400, 'Missing required field: page');
+  if (!body?.flowModels || !body?.rootUid) {
+    ctx.throw(400, 'Missing required fields: flowModels, rootUid');
   }
 
-  // Extract force option and build config object
-  const { force, ...config } = body;
+  const routeResolver = new RouteResolver(ctx.db);
+  const routePath = body.page?.route || body.page?.title || 'Imported';
+  const { parentPath, title } = routeResolver.parseRoutePath(routePath);
 
-  try {
-    const generator = new PageGenerator(ctx.db, ctx.app);
-    const result = await generator.createFromConfig(config as PageConfig, { force: force === true });
-
-    ctx.body = result;
-    ctx.withoutDataWrapping = true;
-  } catch (err: any) {
-    // Handle specific error types
-    if (err.message?.includes('validation failed')) {
-      ctx.status = 422;
-      ctx.body = {
-        error: 'Validation failed',
-        message: err.message,
-      };
-      ctx.withoutDataWrapping = true;
-      return next();
+  // Check if page exists
+  const existing = await routeResolver.resolveByPath(routePath);
+  if (existing) {
+    if (body.force) {
+      const flowModelRepo = ctx.db.getCollection('flowModels').repository as any;
+      await flowModelRepo.remove(existing.pageUid);
+      await routeResolver.deleteRoute(existing.routeId);
+    } else {
+      ctx.throw(409, `Page already exists at path: ${routePath}. Use force=true to overwrite.`);
     }
-
-    if (err.message?.includes('already exists')) {
-      ctx.status = 409;
-      ctx.body = {
-        error: 'Conflict',
-        message: err.message,
-      };
-      ctx.withoutDataWrapping = true;
-      return next();
-    }
-
-    if (err.message?.includes('not found')) {
-      ctx.status = 404;
-      ctx.body = {
-        error: 'Not found',
-        message: err.message,
-      };
-      ctx.withoutDataWrapping = true;
-      return next();
-    }
-
-    // Re-throw unknown errors
-    throw err;
   }
+
+  // Create route structure
+  const schemaUid = generateUid();
+  const tabsSchemaUid = generateUid();
+  const pageUid = generateUid();
+
+  // Create uiSchema
+  const uiSchemaRepo = ctx.db.getRepository('uiSchemas') as any;
+  await uiSchemaRepo.insert({
+    type: 'void',
+    'x-component': 'FlowRoute',
+    'x-uid': schemaUid,
+  });
+
+  // Create route
+  const { routeId } = await routeResolver.createRoute({
+    title,
+    parentPath: parentPath || undefined,
+    schemaUid,
+    tabsSchemaUid,
+  });
+
+  // Create RootPageModel
+  const flowModelRepo = ctx.db.getCollection('flowModels').repository as any;
+  await flowModelRepo.upsertModel({
+    uid: pageUid,
+    async: true,
+    parentId: schemaUid,
+    subKey: 'page',
+    subType: 'object',
+    use: 'RootPageModel',
+    stepParams: {},
+    sortIndex: 0,
+    flowRegistry: {},
+  });
+
+  // Remap UIDs to avoid conflicts with existing data
+  const uidMap = new Map<string, string>();
+  for (const oldUid of Object.keys(body.flowModels)) {
+    uidMap.set(oldUid, generateUid());
+  }
+
+  // Insert all flowModels with remapped UIDs
+  let modelsImported = 0;
+  for (const [oldUid, model] of Object.entries(body.flowModels)) {
+    const newUid = uidMap.get(oldUid)!;
+    const newParentId = model.parentId ? uidMap.get(model.parentId) || tabsSchemaUid : tabsSchemaUid;
+
+    const remappedModel = remapUids(model, uidMap);
+    remappedModel.uid = newUid;
+    remappedModel.parentId = newParentId;
+
+    await flowModelRepo.upsertModel(remappedModel);
+    modelsImported++;
+  }
+
+  const response: CreateResponse = {
+    routeId,
+    pageUid,
+    modelsImported,
+    path: routePath,
+  };
+
+  ctx.body = response;
+  ctx.withoutDataWrapping = true;
 
   await next();
+}
+
+function remapUids(model: any, uidMap: Map<string, string>): any {
+  const result = { ...model };
+
+  if (result.uid && uidMap.has(result.uid)) {
+    result.uid = uidMap.get(result.uid);
+  }
+  if (result.parentId && uidMap.has(result.parentId)) {
+    result.parentId = uidMap.get(result.parentId);
+  }
+
+  if (result.subModels) {
+    const newSubModels: Record<string, any> = {};
+    for (const [key, value] of Object.entries(result.subModels)) {
+      if (Array.isArray(value)) {
+        newSubModels[key] = value.map((m: any) => remapUids(m, uidMap));
+      } else if (value && typeof value === 'object') {
+        newSubModels[key] = remapUids(value, uidMap);
+      }
+    }
+    result.subModels = newSubModels;
+  }
+
+  return result;
 }
