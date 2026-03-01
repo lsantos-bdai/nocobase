@@ -14,8 +14,21 @@
 export interface Recipe {
   page: PageConfig;
   collections?: Record<string, string>; // alias → t_xxx
+  templates?: Record<string, TemplateDefinition>; // key → template definition
   layout: Layout;
   blocks: Record<string, Block>;
+}
+
+// ============================================================================
+// Template Definitions (for ReferenceBlockModel support)
+// ============================================================================
+
+export interface TemplateDefinition {
+  name: string; // Human-readable name like "Details: WorkStation"
+  type: 'details' | 'form';
+  collection: string;
+  fields: (string | FieldConfig | FormFieldConfig)[];
+  actions?: BlockAction[];
 }
 
 export interface PageConfig {
@@ -75,7 +88,8 @@ export interface ColumnConfig {
   width?: number;
   sortable?: boolean;
   fixed?: 'left' | 'right';
-  popup?: Popup; // For relation field click popups
+  popup?: Popup; // For relation field click popups (inline definition)
+  template?: string; // OR template reference key (for reusable templates)
 }
 
 export type DisplayType =
@@ -121,7 +135,15 @@ export interface Tab {
 export type InlineBlock =
   | DetailsBlockInline
   | FormBlockInline
-  | MarkdownBlockInline;
+  | MarkdownBlockInline
+  | ReferenceBlockInline;
+
+export interface ReferenceBlockInline {
+  type: 'reference';
+  template: string; // Key into Recipe.templates
+  collection?: string; // Override collection (for association fields)
+  association?: string; // Association path (e.g., "t_98x374ie2j7.left_gpu")
+}
 
 export interface DetailsBlockInline {
   type: 'details';
@@ -171,6 +193,8 @@ export interface DetailsBlock {
 export interface FieldConfig {
   field: string;
   span?: number; // grid span out of 24
+  popup?: Popup; // For relation field click popups (inline definition)
+  template?: string; // OR template reference key (for reusable templates)
 }
 
 export type BlockAction = 'edit' | 'delete' | { type: 'edit' | 'view'; popup: Popup };

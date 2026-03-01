@@ -28,14 +28,27 @@ import type {
   FlowModel,
   GridSettings,
   DisplayType,
+  TemplateDefinition,
+  ReferenceBlockInline,
 } from '../types';
 import { RouteResolver } from './route-resolver';
+
+// Template reference info collected during pre-scan
+interface TemplateRef {
+  templateUid: string;
+  templateName: string;
+  targetUid: string;
+}
 
 export class Exporter {
   private routeResolver: RouteResolver;
   private collectionMap: Map<string, string> = new Map(); // t_xxx → alias
   private blockIdCounters: Map<string, number> = new Map(); // baseId → count
   private blockUidToId: Map<string, string> = new Map(); // uid → blockId
+  private templates: Map<string, TemplateDefinition> = new Map(); // templateKey → definition
+  private templateUidToKey: Map<string, string> = new Map(); // templateUid → recipe key
+  private templateKeyCounters: Map<string, number> = new Map(); // base key → count
+  private pendingTemplates: Map<string, TemplateRef> = new Map(); // templateUid → ref (queue)
 
   constructor(private db: Database) {
     this.routeResolver = new RouteResolver(db);
@@ -78,10 +91,28 @@ export class Exporter {
     this.collectionMap.clear();
     this.blockIdCounters.clear();
     this.blockUidToId.clear();
+    this.templates.clear();
+    this.templateUidToKey.clear();
+    this.templateKeyCounters.clear();
+    this.pendingTemplates.clear();
     for (const model of blockModels) {
       const blockId = this.generateBlockId(model);
       this.blockUidToId.set(model.uid, blockId);
     }
+
+    // ========================================================================
+    // PRE-SCAN PHASE: Collect and extract ALL templates before main extraction
+    // ========================================================================
+
+    // Pass 1: Scan the tree and collect all ReferenceBlockModel references
+    this.scanForTemplateRefs(flowModels);
+
+    // Pass 2: Extract all templates (discovering nested ones as we go)
+    await this.extractAllTemplates(modelMap);
+
+    // ========================================================================
+    // MAIN EXTRACTION PHASE: Now extract with all templates available
+    // ========================================================================
 
     // Extract layout from grid settings (uses blockUidToId map)
     const layout = this.extractLayout(blockGrid, modelMap);
@@ -102,8 +133,11 @@ export class Exporter {
       collections[alias] = internal;
     }
 
-    // Get route info
-    const route = await this.routeResolver.resolveRouteByPath(path);
+    // Build templates map from extracted references
+    const templateRecords: Record<string, TemplateDefinition> = {};
+    for (const [key, def] of this.templates) {
+      templateRecords[key] = def;
+    }
 
     return {
       page: {
@@ -112,6 +146,7 @@ export class Exporter {
         icon: undefined, // TODO: extract from route if available
       },
       collections: Object.keys(collections).length > 0 ? collections : undefined,
+      templates: Object.keys(templateRecords).length > 0 ? templateRecords : undefined,
       layout,
       blocks,
     };
@@ -535,55 +570,354 @@ export class Exporter {
   }
 
   /**
-   * Extract ReferenceBlockModel by resolving the target template
-   * Makes a COPY of the target block's content (not a reference)
+   * Extract ReferenceBlockModel as a template reference
+   * Templates are pre-extracted during the scan phase, so we just look up the key
    */
-  private async extractReferenceBlock(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<InlineBlock | null> {
+  private async extractReferenceBlock(model: FlowModel, _modelMap: Map<string, FlowModel>): Promise<InlineBlock | null> {
     const stepParams = model.stepParams as any;
-    const targetUid = stepParams?.referenceSettings?.target?.targetUid;
+    const templateUid = stepParams?.referenceSettings?.useTemplate?.templateUid;
+    const resourceSettings = stepParams?.resourceSettings?.init || {};
+    const collectionName = resourceSettings.collectionName;
+    const associationName = resourceSettings.associationName;
 
-    if (!targetUid) {
-      console.warn('[Exporter] ReferenceBlockModel missing targetUid:', model.uid);
+    if (!templateUid) {
+      console.warn('[Exporter] ReferenceBlockModel missing templateUid:', model.uid);
       return null;
     }
 
-    // Try to find target in current modelMap first
-    let targetModel = modelMap.get(targetUid);
+    // Look up the pre-extracted template key
+    const templateKey = this.templateUidToKey.get(templateUid);
+    if (!templateKey) {
+      console.warn('[Exporter] Template not found in pre-scan:', templateUid);
+      return null;
+    }
 
-    // If not found, fetch from database (target may be in a different tree/template)
+    // Build the reference block
+    const referenceBlock: ReferenceBlockInline = {
+      type: 'reference',
+      template: templateKey,
+    };
+
+    // Add collection if specified
+    if (collectionName) {
+      const alias = this.getCollectionAlias(collectionName);
+      referenceBlock.collection = alias;
+    }
+
+    // Add association if present
+    if (associationName) {
+      referenceBlock.association = associationName;
+    }
+
+    return referenceBlock;
+  }
+
+  /**
+   * Generate a unique template key from the template name
+   */
+  private generateTemplateKey(templateName: string): string {
+    // Convert to snake_case key (e.g., "Details: WorkStation" → "details_workstation")
+    const baseKey = templateName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    // Use counter to ensure uniqueness
+    const count = (this.templateKeyCounters.get(baseKey) || 0) + 1;
+    this.templateKeyCounters.set(baseKey, count);
+
+    return count === 1 ? baseKey : `${baseKey}_${count}`;
+  }
+
+  // ============================================================================
+  // PRE-SCAN: Collect all template references before extraction
+  // ============================================================================
+
+  /**
+   * Scan all flowModels and collect ReferenceBlockModel references
+   */
+  private scanForTemplateRefs(flowModels: FlowModel[]): void {
+    console.log(`[Exporter] Scanning ${flowModels.length} flowModels for template refs...`);
+    for (const model of flowModels) {
+      this.scanModelForTemplateRefs(model);
+    }
+    console.log(`[Exporter] Found ${this.pendingTemplates.size} template references in initial scan`);
+  }
+
+  /**
+   * Recursively scan a model and its subModels for ReferenceBlockModel
+   */
+  private scanModelForTemplateRefs(model: FlowModel): void {
+    if (model.use === 'ReferenceBlockModel') {
+      const stepParams = model.stepParams as any;
+      const templateUid = stepParams?.referenceSettings?.useTemplate?.templateUid;
+      const templateName = stepParams?.referenceSettings?.useTemplate?.templateName;
+      const targetUid = stepParams?.referenceSettings?.target?.targetUid;
+
+      if (templateUid && targetUid && !this.pendingTemplates.has(templateUid)) {
+        this.pendingTemplates.set(templateUid, {
+          templateUid,
+          templateName: templateName || 'Template',
+          targetUid,
+        });
+      }
+    }
+
+    // Recursively scan subModels
+    if (model.subModels) {
+      for (const value of Object.values(model.subModels)) {
+        if (Array.isArray(value)) {
+          for (const subModel of value) {
+            this.scanModelForTemplateRefs(subModel);
+          }
+        } else if (value && typeof value === 'object' && 'uid' in value) {
+          this.scanModelForTemplateRefs(value);
+        }
+      }
+    }
+  }
+
+  /**
+   * Extract all pending templates, discovering nested ones as we go
+   */
+  private async extractAllTemplates(modelMap: Map<string, FlowModel>): Promise<void> {
+    let iteration = 0;
+    // Process templates until no more pending
+    while (this.pendingTemplates.size > 0) {
+      iteration++;
+      console.log(`[Exporter] Template extraction iteration ${iteration}, pending: ${this.pendingTemplates.size}`);
+
+      // Get one template to process
+      const [templateUid, ref] = this.pendingTemplates.entries().next().value;
+      this.pendingTemplates.delete(templateUid);
+
+      // Skip if already processed
+      if (this.templateUidToKey.has(templateUid)) {
+        console.log(`[Exporter] Skipping already processed template: ${ref.templateName}`);
+        continue;
+      }
+
+      console.log(`[Exporter] Extracting template: ${ref.templateName} (uid: ${templateUid}, targetUid: ${ref.targetUid})`);
+
+      // Generate key for this template
+      const templateKey = this.generateTemplateKey(ref.templateName);
+      this.templateUidToKey.set(templateUid, templateKey);
+
+      // Fetch and extract the template content
+      const templateDef = await this.extractTemplateDefinitionWithDiscovery(
+        ref.targetUid,
+        ref.templateName,
+        modelMap
+      );
+
+      if (templateDef) {
+        this.templates.set(templateKey, templateDef);
+        console.log(`[Exporter] Successfully extracted template: ${templateKey}`);
+      } else {
+        console.warn(`[Exporter] Failed to extract template: ${ref.templateName} (targetUid: ${ref.targetUid})`);
+      }
+    }
+
+    console.log(`[Exporter] Template extraction complete. Total templates: ${this.templates.size}`);
+  }
+
+  /**
+   * Extract a template definition and discover any nested template references
+   */
+  private async extractTemplateDefinitionWithDiscovery(
+    targetUid: string,
+    templateName: string,
+    modelMap: Map<string, FlowModel>
+  ): Promise<TemplateDefinition | null> {
+    console.log(`[Exporter] extractTemplateDefinitionWithDiscovery: ${templateName}, targetUid: ${targetUid}`);
+
+    // Fetch the target block
+    let targetModel = modelMap.get(targetUid);
+    console.log(`[Exporter] Target model in modelMap: ${!!targetModel}`);
+
     if (!targetModel) {
+      console.log(`[Exporter] Fetching target model from DB: ${targetUid}`);
       targetModel = await this.fetchFlowModelWithSubModels(targetUid);
       if (!targetModel) {
-        console.warn('[Exporter] ReferenceBlockModel target not found:', targetUid);
+        console.warn('[Exporter] Template target not found in DB:', targetUid);
         return null;
       }
 
-      // Add target and its subModels to the map for extraction
+      console.log(`[Exporter] Fetched model use: ${targetModel.use}, has subModels: ${!!targetModel.subModels}`);
+
+      // Add to modelMap for extraction
       modelMap.set(targetModel.uid, targetModel);
       this.addSubModelsToMap(targetModel, modelMap);
+
+      // IMPORTANT: Scan this newly fetched model for nested template refs
+      this.scanModelForTemplateRefs(targetModel);
+      console.log(`[Exporter] After scanning, pending templates: ${this.pendingTemplates.size}`);
     }
 
-    // Extract the target as a regular inline block (recursively)
-    return this.extractInlineBlock(targetModel, modelMap);
+    console.log(`[Exporter] Target model type: ${targetModel.use}`);
+
+    // Extract based on type
+    if (targetModel.use === 'DetailsBlockModel') {
+      const block = await this.extractDetailsBlock(targetModel, modelMap);
+      return {
+        name: templateName,
+        type: 'details',
+        collection: block.collection,
+        fields: block.fields,
+        actions: block.actions,
+      };
+    }
+
+    if (targetModel.use === 'FormBlockModel' || targetModel.use === 'EditFormModel') {
+      const block = await this.extractFormBlock(targetModel, modelMap);
+      return {
+        name: templateName,
+        type: 'form',
+        collection: block.collection,
+        fields: block.fields,
+        actions: block.actions,
+      };
+    }
+
+    console.warn('[Exporter] Unknown template block type:', targetModel.use);
+    return null;
   }
 
   /**
    * Fetch a flowModel with its nested subModels from database
+   * Uses the closure table to get all descendants and builds the tree structure
    */
   private async fetchFlowModelWithSubModels(uid: string): Promise<FlowModel | null> {
     const flowModelRepo = this.db.getRepository('flowModels') as any;
 
     // Try using the repository's toFlowModelJSON method if available
     const modelRaw = await flowModelRepo.findOne({ filter: { uid } });
+    console.log(`[Exporter] fetchFlowModelWithSubModels(${uid}): found=${!!modelRaw}`);
     if (!modelRaw) return null;
 
     // Check if repository has toFlowModelJSON (builds nested structure)
     if (typeof flowModelRepo.toFlowModelJSON === 'function') {
-      return flowModelRepo.toFlowModelJSON(modelRaw);
+      const result = await flowModelRepo.toFlowModelJSON(modelRaw);
+      console.log(`[Exporter] toFlowModelJSON result: uid=${result?.uid}, use=${result?.use}, hasSubModels=${!!result?.subModels}`);
+      return result;
     }
 
-    // Fallback: return raw model (may not have nested subModels)
-    return modelRaw;
+    // Fallback: fetch all descendants via closure table and build tree manually
+    console.log(`[Exporter] Fetching descendants via closure table for: ${uid}`);
+    const descendants = await this.fetchDescendants(uid);
+    console.log(`[Exporter] Found ${descendants.length} descendants`);
+
+    if (descendants.length === 0) {
+      // No descendants, just return the root
+      const plainModel = modelRaw.toJSON ? modelRaw.toJSON() : modelRaw;
+      return plainModel as FlowModel;
+    }
+
+    // Build the tree structure from flat list
+    return await this.buildTreeFromDescendants(uid, descendants);
+  }
+
+  /**
+   * Fetch all descendants of a model using the closure table
+   */
+  private async fetchDescendants(rootUid: string): Promise<FlowModel[]> {
+    // Query the closure table to get all descendant UIDs
+    const treePathRepo = this.db.getRepository('flowModelTreePath');
+    const paths = await treePathRepo.find({
+      filter: { ancestor: rootUid },
+    });
+
+    const descendantUids = paths
+      .map((p: any) => p.descendant || p.get?.('descendant'))
+      .filter((uid: string) => uid && uid !== rootUid);
+
+    if (descendantUids.length === 0) return [];
+
+    // Fetch all descendant models
+    const flowModelRepo = this.db.getRepository('flowModels');
+    const models = await flowModelRepo.find({
+      filter: { uid: { $in: descendantUids } },
+    });
+
+    // Convert to plain objects
+    return models.map((m: any) => (m.toJSON ? m.toJSON() : m) as FlowModel);
+  }
+
+  /**
+   * Build a tree structure from flat descendant list
+   */
+  private async buildTreeFromDescendants(rootUid: string, descendants: FlowModel[]): Promise<FlowModel | null> {
+    // Create a map of all models
+    const modelMap = new Map<string, FlowModel>();
+
+    // First add all descendants to map
+    for (const model of descendants) {
+      modelMap.set(model.uid, { ...model, subModels: {} });
+    }
+
+    // Fetch the root model if not in descendants
+    let root = modelMap.get(rootUid);
+    if (!root) {
+      const flowModelRepo = this.db.getRepository('flowModels');
+      const rootModelRaw = await flowModelRepo.findOne({ filter: { uid: rootUid } });
+      if (!rootModelRaw) {
+        console.warn(`[Exporter] Root ${rootUid} not found in database`);
+        return null;
+      }
+      const rootPlain = (rootModelRaw as any).toJSON ? (rootModelRaw as any).toJSON() : rootModelRaw;
+      root = { ...rootPlain, subModels: {} } as FlowModel;
+      modelMap.set(rootUid, root);
+    }
+
+    // Now build the tree by linking children to parents
+    for (const model of modelMap.values()) {
+      if (model.parentId && model.parentId !== rootUid) {
+        const parent = modelMap.get(model.parentId);
+        if (parent && model.subKey) {
+          if (!parent.subModels) parent.subModels = {};
+
+          if (model.subType === 'array') {
+            if (!parent.subModels[model.subKey]) {
+              parent.subModels[model.subKey] = [];
+            }
+            (parent.subModels[model.subKey] as FlowModel[]).push(model);
+          } else {
+            parent.subModels[model.subKey] = model;
+          }
+        }
+      } else if (model.parentId === rootUid && model.subKey) {
+        // Direct child of root
+        if (!root.subModels) root.subModels = {};
+
+        if (model.subType === 'array') {
+          if (!root.subModels[model.subKey]) {
+            root.subModels[model.subKey] = [];
+          }
+          (root.subModels[model.subKey] as FlowModel[]).push(model);
+        } else {
+          root.subModels[model.subKey] = model;
+        }
+      }
+    }
+
+    // Sort arrays by sortIndex
+    const sortArrays = (obj: FlowModel) => {
+      if (obj.subModels) {
+        for (const key of Object.keys(obj.subModels)) {
+          const value = obj.subModels[key];
+          if (Array.isArray(value)) {
+            value.sort((a, b) => (a.sortIndex || 0) - (b.sortIndex || 0));
+            value.forEach(sortArrays);
+          } else if (value && typeof value === 'object') {
+            sortArrays(value);
+          }
+        }
+      }
+    };
+    sortArrays(root);
+
+    console.log(`[Exporter] Built tree for ${rootUid}, subModels keys: ${Object.keys(root.subModels || {}).join(', ')}`);
+    return root;
   }
 
   /**
@@ -646,7 +980,7 @@ export class Exporter {
     const alias = this.getCollectionAlias(collectionName);
 
     // Extract fields from grid/items
-    const fields = this.extractDetailFields(model, modelMap);
+    const fields = await this.extractDetailFields(model, modelMap);
 
     // Extract actions
     const actions = await this.extractBlockActions(model, modelMap);
@@ -680,7 +1014,7 @@ export class Exporter {
   /**
    * Extract detail fields from DetailsBlockModel
    */
-  private extractDetailFields(model: FlowModel, modelMap: Map<string, FlowModel>): (string | FieldConfig)[] {
+  private async extractDetailFields(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<(string | FieldConfig)[]> {
     const fields: (string | FieldConfig)[] = [];
 
     // Find DetailsGridModel
@@ -697,8 +1031,24 @@ export class Exporter {
 
       if (!fieldPath) continue;
 
-      if (span && span !== 24) {
-        fields.push({ field: fieldPath, span });
+      // Check for relation field popup (DetailsItemModel → field → page)
+      const fieldModel = this.getSubModel(item, 'field', modelMap);
+      let popup: Popup | undefined;
+      if (fieldModel) {
+        const pageModel = this.getSubModel(fieldModel, 'page', modelMap);
+        if (pageModel) {
+          popup = await this.extractPopup(fieldModel, modelMap) || undefined;
+        }
+      }
+
+      // Determine if we need a full config object
+      const needsConfig = (span && span !== 24) || popup;
+
+      if (needsConfig) {
+        const config: FieldConfig = { field: fieldPath };
+        if (span && span !== 24) config.span = span;
+        if (popup) config.popup = popup;
+        fields.push(config);
       } else {
         fields.push(fieldPath);
       }

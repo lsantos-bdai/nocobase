@@ -26,6 +26,8 @@ import type {
   FlowModel,
   CreateResponse,
   DisplayType,
+  TemplateDefinition,
+  ReferenceBlockInline,
 } from '../types';
 import { RouteResolver } from './route-resolver';
 import { generateUid, generateRowId } from '../generators/uid';
@@ -42,10 +44,18 @@ interface GeneratedFlowModel {
   subModels?: Record<string, any>;
 }
 
+interface TemplateInfo {
+  templateKey: string; // Key in uiSchemaTemplates table
+  targetUid: string; // UID of the target schema
+  templateName: string;
+  collectionName: string;
+}
+
 export class Importer {
   private routeResolver: RouteResolver;
   private collectionMap: Map<string, string> = new Map(); // alias → t_xxx
   private generatedModels: GeneratedFlowModel[] = [];
+  private templateKeyToInfo: Map<string, TemplateInfo> = new Map(); // recipe key → template info
 
   constructor(
     private db: Database,
@@ -74,10 +84,16 @@ export class Importer {
 
     // Build collection map
     this.collectionMap.clear();
+    this.templateKeyToInfo.clear();
     if (recipe.collections) {
       for (const [alias, internal] of Object.entries(recipe.collections)) {
         this.collectionMap.set(alias, internal);
       }
+    }
+
+    // Process templates first (create/find them in uiSchemaTemplates)
+    if (recipe.templates) {
+      await this.processTemplates(recipe.templates);
     }
 
     // Generate UIDs for all components
@@ -645,6 +661,16 @@ export class Importer {
       case 'markdown':
         this.generateMarkdownBlock({ ...block, type: 'markdown' } as MarkdownBlock, uid, gridUid, sortIndex);
         break;
+      case 'reference':
+        // Generate ReferenceBlockModel for template reference
+        this.generateReferenceBlock(
+          block as ReferenceBlockInline,
+          uid,
+          gridUid,
+          sortIndex,
+          parentCollectionName
+        );
+        break;
     }
   }
 
@@ -881,6 +907,7 @@ export class Importer {
   ): void {
     const fieldPath = typeof field === 'string' ? field : field.field;
     const span = typeof field === 'string' ? undefined : field.span;
+    const popup = typeof field === 'string' ? undefined : field.popup;
     const displayFieldUid = generateUid();
 
     const stepParams: Record<string, unknown> = {
@@ -897,6 +924,7 @@ export class Importer {
       (stepParams as any).detailsItemSettings = { span: { span } };
     }
 
+    // Create the DetailsItemModel with nested DisplayTextFieldModel
     this.generatedModels.push({
       uid,
       use: 'DetailsItemModel',
@@ -920,6 +948,12 @@ export class Importer {
         },
       },
     });
+
+    // If field has a popup (relation field), generate it under the DisplayTextFieldModel
+    if (popup) {
+      const pageUid = generateUid();
+      this.generatePopup(popup, pageUid, displayFieldUid, collectionName);
+    }
   }
 
   /**
@@ -1003,6 +1037,10 @@ export class Importer {
       }
     }
 
+    // Detect if this is a relation field
+    const isRelation = this.isRelationField(collectionName, fieldPath);
+    const fieldModel = isRelation ? 'AssociationSelectFieldModel' : 'InputFieldModel';
+
     this.generatedModels.push({
       uid,
       use: 'FormItemModel',
@@ -1015,7 +1053,7 @@ export class Importer {
       subModels: {
         field: {
           uid: inputFieldUid,
-          use: 'InputFieldModel',
+          use: fieldModel,
           props: null,
           parentId: uid,
           subKey: 'field',
@@ -1026,6 +1064,29 @@ export class Importer {
         },
       },
     });
+  }
+
+  /**
+   * Check if a field is a relation field
+   */
+  private isRelationField(collectionName: string, fieldPath: string): boolean {
+    try {
+      const collection = this.db.getCollection(collectionName);
+      if (!collection) return false;
+
+      const field = collection.getField(fieldPath);
+      if (!field) return false;
+
+      const fieldType = field.type;
+      return (
+        fieldType === 'belongsTo' ||
+        fieldType === 'hasMany' ||
+        fieldType === 'belongsToMany' ||
+        fieldType === 'hasOne'
+      );
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -1152,5 +1213,183 @@ export class Importer {
       // Fallback: delete by uid
       await flowModelRepo.destroy({ filterByTk: pageUid });
     }
+  }
+
+  // ============================================================================
+  // Template Processing
+  // ============================================================================
+
+  /**
+   * Process templates - create or find them in uiSchemaTemplates
+   */
+  private async processTemplates(templates: Record<string, TemplateDefinition>): Promise<void> {
+    const templateRepo = this.db.getRepository('uiSchemaTemplates');
+
+    for (const [key, def] of Object.entries(templates)) {
+      // Check if template already exists by name
+      const existing = await templateRepo.findOne({
+        filter: { name: def.name },
+      });
+
+      if (existing) {
+        // Use existing template
+        this.templateKeyToInfo.set(key, {
+          templateKey: existing.get('key') as string,
+          targetUid: existing.get('uid') as string,
+          templateName: def.name,
+          collectionName: this.resolveCollection(def.collection),
+        });
+      } else {
+        // Create new template
+        const templateInfo = await this.createTemplate(def);
+        this.templateKeyToInfo.set(key, templateInfo);
+      }
+    }
+  }
+
+  /**
+   * Create a new template in uiSchemaTemplates
+   */
+  private async createTemplate(def: TemplateDefinition): Promise<TemplateInfo> {
+    const collectionName = this.resolveCollection(def.collection);
+    const templateKey = generateUid();
+    const schemaUid = generateUid();
+
+    // 1. Create the UI schema for the template content
+    await this.createTemplateSchema(def, schemaUid, collectionName);
+
+    // 2. Register in uiSchemaTemplates
+    await this.db.getRepository('uiSchemaTemplates').create({
+      values: {
+        key: templateKey,
+        name: def.name,
+        componentName: def.type === 'details' ? 'Details' : 'Form',
+        collectionName,
+        dataSourceKey: 'main',
+        uid: schemaUid,
+      },
+    });
+
+    return {
+      templateKey,
+      targetUid: schemaUid,
+      templateName: def.name,
+      collectionName,
+    };
+  }
+
+  /**
+   * Create the flowModel schema for a template
+   */
+  private async createTemplateSchema(
+    def: TemplateDefinition,
+    schemaUid: string,
+    collectionName: string
+  ): Promise<void> {
+    // Generate the block based on type
+    if (def.type === 'details') {
+      this.generateDetailsBlock(
+        {
+          type: 'details',
+          collection: def.collection,
+          fields: def.fields as (string | FieldConfig)[],
+          actions: def.actions,
+        },
+        schemaUid,
+        '', // No parent - this is a root template
+        0,
+        collectionName
+      );
+    } else if (def.type === 'form') {
+      this.generateEditFormBlock(
+        {
+          type: 'form',
+          collection: def.collection,
+          fields: def.fields as (string | FormFieldConfig)[],
+          actions: def.actions,
+        },
+        schemaUid,
+        '', // No parent - this is a root template
+        0,
+        collectionName
+      );
+    }
+
+    // Save the template flowModels
+    const repo = this.db.getRepository('flowModels') as any;
+    for (const model of this.generatedModels) {
+      // Only save models that belong to this template (have schemaUid in their ancestry)
+      if (model.uid === schemaUid || model.parentId === schemaUid || this.isDescendantOf(model, schemaUid)) {
+        await repo.upsertModel(model);
+      }
+    }
+  }
+
+  /**
+   * Check if a model is a descendant of a given parent
+   */
+  private isDescendantOf(model: GeneratedFlowModel, ancestorUid: string): boolean {
+    // Walk up the parent chain in generatedModels
+    let current = model;
+    while (current.parentId) {
+      if (current.parentId === ancestorUid) return true;
+      const parent = this.generatedModels.find(m => m.uid === current.parentId);
+      if (!parent) break;
+      current = parent;
+    }
+    return false;
+  }
+
+  /**
+   * Generate ReferenceBlockModel for a template reference
+   */
+  private generateReferenceBlock(
+    block: ReferenceBlockInline,
+    uid: string,
+    parentId: string,
+    sortIndex: number,
+    parentCollectionName: string
+  ): void {
+    const templateInfo = this.templateKeyToInfo.get(block.template);
+    if (!templateInfo) {
+      throw new Error(`Template not found: ${block.template}`);
+    }
+
+    // Determine collection and association
+    const collectionName = block.collection
+      ? this.resolveCollection(block.collection)
+      : parentCollectionName;
+    const associationName = block.association;
+
+    this.generatedModels.push({
+      uid,
+      use: 'ReferenceBlockModel',
+      parentId,
+      subKey: 'items',
+      subType: 'array',
+      sortIndex,
+      stepParams: {
+        referenceSettings: {
+          target: {
+            targetUid: templateInfo.targetUid,
+            mode: 'reference',
+          },
+          useTemplate: {
+            templateUid: templateInfo.templateKey,
+            templateName: templateInfo.templateName,
+          },
+        },
+        resourceSettings: {
+          init: {
+            dataSourceKey: 'main',
+            collectionName,
+            associationName,
+            filterByTk: '{{ctx.view.inputArgs.filterByTk}}',
+            sourceId: '{{ctx.view.inputArgs.sourceId}}',
+          },
+        },
+      },
+      flowRegistry: {},
+    });
   }
 }
