@@ -474,7 +474,7 @@ export class RouteResolver {
 
     // Get all flowModels and filter for BlockGridModel with matching parentId
     const allModelsRaw = await flowModelRepo.find({
-      limit: 1000,
+      limit: 10000,
     });
 
     // Convert Sequelize models to plain objects
@@ -566,7 +566,7 @@ export class RouteResolver {
     // Get all models once and cache them for recursive calls
     let allModels = allModelsCache;
     if (!allModels) {
-      const allModelsRaw = await flowModelRepo.find({ limit: 2000 });
+      const allModelsRaw = await flowModelRepo.find({ limit: 10000 });
       allModels = allModelsRaw.map((m: any) => (typeof m.toJSON === 'function' ? m.toJSON() : m));
     }
 

@@ -1,5 +1,7 @@
 /**
  * OpenAPI/Swagger documentation for UI Snapshot plugin
+ *
+ * Recipe Format - human-readable JSON that can recreate NocoBase pages
  */
 
 export default {
@@ -9,133 +11,384 @@ export default {
   tags: [
     {
       name: 'ui-snapshot',
-      description: 'JSON-based UI page creation, export, and management',
+      description: 'Recipe-based UI page creation, export, and management',
     },
   ],
   components: {
     schemas: {
-      CreateRequest: {
+      Recipe: {
         type: 'object',
-        description: 'Page configuration object with optional force flag',
+        description: 'Human-readable page configuration (Recipe format)',
         required: ['page', 'layout', 'blocks'],
         properties: {
-          page: {
-            type: 'object',
-            required: ['title'],
-            description: 'Page settings (title, icon, route)',
-            properties: {
-              title: { type: 'string', description: 'Page title displayed in navigation' },
-              icon: { type: 'string', description: 'Ant Design icon name (e.g., "DesktopOutlined")' },
-              route: { type: 'string', description: 'Route path (auto-generated from title if omitted)' },
-            },
-          },
+          page: { $ref: '#/components/schemas/PageConfig' },
           collections: {
             type: 'object',
             additionalProperties: { type: 'string' },
-            description: 'Map of collection aliases to internal names (e.g., {"WorkStation": "t_9dx8b5vb55b"})',
+            description: 'Map of collection aliases to internal names (e.g., {"Workstation": "t_9dx8b5vb55b"})',
           },
-          layout: {
-            type: 'object',
-            required: ['rows'],
-            description: 'Grid layout configuration',
-            properties: {
-              rows: {
-                type: 'array',
-                items: { $ref: '#/components/schemas/LayoutRow' },
-              },
-            },
-          },
+          layout: { $ref: '#/components/schemas/Layout' },
           blocks: {
             type: 'object',
-            additionalProperties: { $ref: '#/components/schemas/BlockConfig' },
-            description: 'Block configurations keyed by name',
-          },
-          force: {
-            type: 'boolean',
-            default: false,
-            description: 'If true, deletes existing page first if it exists at the same path',
+            additionalProperties: { $ref: '#/components/schemas/Block' },
+            description: 'Block configurations keyed by ID',
           },
         },
         example: {
           page: {
             title: 'Workstations',
+            icon: 'DesktopOutlined',
             route: 'EngOps/Workstations',
           },
           collections: {
-            WorkStation: 't_9dx8b5vb55b',
+            Workstation: 't_9dx8b5vb55b',
           },
           layout: {
             rows: [
               {
                 columns: [
-                  {
-                    width: 24,
-                    blocks: [{ $ref: '#/blocks/main_table' }],
-                  },
+                  { width: 15, blocks: ['table1'] },
+                  { width: 9, blocks: ['chart1', 'chart2'] },
                 ],
               },
             ],
           },
           blocks: {
-            main_table: {
-              type: 'TableBlockModel',
-              collection: 'WorkStation',
+            table1: {
+              type: 'table',
+              collection: 'Workstation',
               columns: [
                 { field: 'name', sortable: true },
-                { field: 'status' },
+                { field: 'os', displayType: 'select' },
+                'ip_address',
+                'location',
               ],
+              pageSize: 20,
+              actions: {
+                toolbar: ['filter', 'create', 'refresh'],
+                row: [
+                  {
+                    type: 'view',
+                    popup: {
+                      tabs: [
+                        {
+                          title: 'Details',
+                          blocks: [
+                            {
+                              type: 'details',
+                              collection: 'Workstation',
+                              fields: ['name', 'os', 'ip_address'],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                  'delete',
+                ],
+              },
+            },
+            chart1: {
+              type: 'chart',
+              collection: 'Workstation',
+              chartType: 'pie',
+              dimension: 'os',
+              measure: { field: 'id', aggregation: 'count' },
+            },
+            chart2: {
+              type: 'chart',
+              collection: 'Workstation',
+              chartType: 'bar',
+              dimension: 'location',
+              measure: { field: 'id', aggregation: 'count' },
             },
           },
-          force: false,
         },
       },
-      LayoutRow: {
+      PageConfig: {
+        type: 'object',
+        required: ['title'],
+        properties: {
+          title: { type: 'string', description: 'Page title displayed in navigation' },
+          icon: { type: 'string', description: 'Ant Design icon name (e.g., "DesktopOutlined")' },
+          route: { type: 'string', description: 'Route path (e.g., "EngOps/Workstations")' },
+        },
+      },
+      Layout: {
+        type: 'object',
+        required: ['rows'],
+        properties: {
+          rows: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/Row' },
+          },
+        },
+      },
+      Row: {
         type: 'object',
         properties: {
           columns: {
             type: 'array',
+            items: { $ref: '#/components/schemas/Column' },
+          },
+        },
+      },
+      Column: {
+        type: 'object',
+        properties: {
+          width: { type: 'integer', minimum: 1, maximum: 24, description: 'Column width out of 24' },
+          blocks: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Block IDs referencing keys in Recipe.blocks',
+          },
+        },
+      },
+      Block: {
+        type: 'object',
+        description: 'Block configuration (discriminated union by type)',
+        oneOf: [
+          { $ref: '#/components/schemas/TableBlock' },
+          { $ref: '#/components/schemas/ChartBlock' },
+          { $ref: '#/components/schemas/DetailsBlock' },
+          { $ref: '#/components/schemas/FormBlock' },
+          { $ref: '#/components/schemas/MarkdownBlock' },
+        ],
+        discriminator: {
+          propertyName: 'type',
+          mapping: {
+            table: '#/components/schemas/TableBlock',
+            chart: '#/components/schemas/ChartBlock',
+            details: '#/components/schemas/DetailsBlock',
+            form: '#/components/schemas/FormBlock',
+            markdown: '#/components/schemas/MarkdownBlock',
+          },
+        },
+      },
+      TableBlock: {
+        type: 'object',
+        required: ['type', 'collection', 'columns'],
+        properties: {
+          type: { type: 'string', enum: ['table'] },
+          collection: { type: 'string', description: 'Collection alias' },
+          columns: {
+            type: 'array',
             items: {
-              type: 'object',
-              properties: {
-                width: { type: 'integer', minimum: 1, maximum: 24, description: 'Column width out of 24' },
-                blocks: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      $ref: { type: 'string', description: 'Reference to block (e.g., "#/blocks/table1")' },
-                    },
-                  },
+              oneOf: [
+                { type: 'string', description: 'Field name (shorthand)' },
+                { $ref: '#/components/schemas/ColumnConfig' },
+              ],
+            },
+          },
+          actions: {
+            type: 'object',
+            properties: {
+              toolbar: {
+                type: 'array',
+                items: { type: 'string', enum: ['filter', 'create', 'refresh', 'export'] },
+              },
+              row: {
+                type: 'array',
+                items: {
+                  oneOf: [
+                    { type: 'string', enum: ['delete'] },
+                    { $ref: '#/components/schemas/ViewAction' },
+                    { $ref: '#/components/schemas/EditAction' },
+                  ],
                 },
               },
             },
           },
+          pageSize: { type: 'integer', default: 20 },
+          defaultSort: {
+            type: 'object',
+            properties: {
+              field: { type: 'string' },
+              order: { type: 'string', enum: ['asc', 'desc'] },
+            },
+          },
+          quickEdit: { type: 'boolean' },
         },
+      },
+      ColumnConfig: {
+        type: 'object',
+        required: ['field'],
+        properties: {
+          field: { type: 'string' },
+          displayType: { type: 'string', enum: ['text', 'checkbox', 'date', 'number', 'select', 'tag', 'link', 'image'] },
+          width: { type: 'integer' },
+          sortable: { type: 'boolean' },
+          fixed: { type: 'string', enum: ['left', 'right'] },
+        },
+      },
+      ViewAction: {
+        type: 'object',
+        required: ['type', 'popup'],
+        properties: {
+          type: { type: 'string', enum: ['view'] },
+          popup: { $ref: '#/components/schemas/Popup' },
+        },
+      },
+      EditAction: {
+        type: 'object',
+        required: ['type', 'popup'],
+        properties: {
+          type: { type: 'string', enum: ['edit'] },
+          popup: { $ref: '#/components/schemas/Popup' },
+        },
+      },
+      Popup: {
+        type: 'object',
+        required: ['tabs'],
+        properties: {
+          displayTitle: { type: 'boolean' },
+          tabs: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/Tab' },
+          },
+        },
+      },
+      Tab: {
+        type: 'object',
+        required: ['title', 'blocks'],
+        properties: {
+          title: { type: 'string' },
+          icon: { type: 'string' },
+          blocks: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/InlineBlock' },
+            description: 'Inline block definitions (details, form, or markdown)',
+          },
+        },
+      },
+      InlineBlock: {
+        type: 'object',
+        description: 'Block for popups (details, form, or markdown)',
+        oneOf: [
+          { $ref: '#/components/schemas/DetailsBlock' },
+          { $ref: '#/components/schemas/FormBlock' },
+          { $ref: '#/components/schemas/MarkdownBlock' },
+        ],
+      },
+      ChartBlock: {
+        type: 'object',
+        required: ['type', 'collection', 'chartType', 'dimension', 'measure'],
+        properties: {
+          type: { type: 'string', enum: ['chart'] },
+          collection: { type: 'string' },
+          chartType: { type: 'string', enum: ['pie', 'bar', 'line', 'area'] },
+          dimension: { type: 'string', description: 'X-axis or category field' },
+          measure: {
+            type: 'object',
+            required: ['field', 'aggregation'],
+            properties: {
+              field: { type: 'string' },
+              aggregation: { type: 'string', enum: ['count', 'sum', 'avg', 'min', 'max'] },
+            },
+          },
+          options: {
+            type: 'object',
+            properties: {
+              legend: { type: 'boolean' },
+              tooltip: { type: 'boolean' },
+            },
+          },
+        },
+      },
+      DetailsBlock: {
+        type: 'object',
+        required: ['type', 'collection', 'fields'],
+        properties: {
+          type: { type: 'string', enum: ['details'] },
+          collection: { type: 'string' },
+          fields: {
+            type: 'array',
+            items: {
+              oneOf: [
+                { type: 'string', description: 'Field name (shorthand)' },
+                { $ref: '#/components/schemas/FieldConfig' },
+              ],
+            },
+          },
+          actions: {
+            type: 'array',
+            items: { type: 'string', enum: ['edit', 'delete'] },
+          },
+        },
+      },
+      FormBlock: {
+        type: 'object',
+        required: ['type', 'collection', 'fields'],
+        properties: {
+          type: { type: 'string', enum: ['form'] },
+          collection: { type: 'string' },
+          fields: {
+            type: 'array',
+            items: {
+              oneOf: [
+                { type: 'string', description: 'Field name (shorthand)' },
+                { $ref: '#/components/schemas/FormFieldConfig' },
+              ],
+            },
+          },
+          actions: {
+            type: 'array',
+            items: { type: 'string', enum: ['edit', 'delete'] },
+          },
+        },
+      },
+      FieldConfig: {
+        type: 'object',
+        required: ['field'],
+        properties: {
+          field: { type: 'string' },
+          span: { type: 'integer', description: 'Grid span out of 24' },
+        },
+      },
+      FormFieldConfig: {
+        type: 'object',
+        required: ['field'],
+        properties: {
+          field: { type: 'string' },
+          required: { type: 'boolean' },
+          placeholder: { type: 'string' },
+        },
+      },
+      MarkdownBlock: {
+        type: 'object',
+        required: ['type', 'content'],
+        properties: {
+          type: { type: 'string', enum: ['markdown'] },
+          content: { type: 'string' },
+        },
+      },
+      CreateRequest: {
+        allOf: [
+          { $ref: '#/components/schemas/Recipe' },
+          {
+            type: 'object',
+            properties: {
+              force: {
+                type: 'boolean',
+                default: false,
+                description: 'If true, deletes existing page first if it exists at the same path',
+              },
+            },
+          },
+        ],
       },
       CreateResponse: {
         type: 'object',
         properties: {
-          routeId: {
-            type: 'integer',
-            description: 'ID of the created route entry in desktopRoutes',
-          },
-          pageUid: {
-            type: 'string',
-            description: 'UID of the created RootPageModel flowModel',
-          },
-          blocksCreated: {
-            type: 'integer',
-            description: 'Number of blocks created',
-          },
-          path: {
-            type: 'string',
-            description: 'Full route path of the created page',
-          },
+          routeId: { type: 'integer', description: 'ID of the created route entry in desktopRoutes' },
+          pageUid: { type: 'string', description: 'UID of the created RootPageModel flowModel' },
+          blocksCreated: { type: 'integer', description: 'Number of flowModels created' },
+          path: { type: 'string', description: 'Full route path of the created page' },
         },
         example: {
           routeId: 123,
           pageUid: 'abc123xyz45',
-          blocksCreated: 3,
+          blocksCreated: 15,
           path: 'EngOps/Workstations',
         },
       },
@@ -143,260 +396,57 @@ export default {
         type: 'object',
         required: ['path'],
         properties: {
-          path: {
-            type: 'string',
-            description: 'Route path of the page to delete (e.g., "EngOps/Workstations")',
-          },
+          path: { type: 'string', description: 'Route path of the page to delete' },
         },
-        example: {
-          path: 'EngOps/Workstations',
-        },
+        example: { path: 'EngOps/Workstations' },
       },
       DeleteResponse: {
         type: 'object',
         properties: {
-          deleted: {
-            type: 'boolean',
-            description: 'Whether the deletion was successful',
-          },
-          path: {
-            type: 'string',
-            description: 'Route path of the deleted page',
-          },
-          flowModelsDeleted: {
-            type: 'integer',
-            description: 'Number of flowModels deleted (page and all descendant blocks)',
-          },
+          deleted: { type: 'boolean' },
+          path: { type: 'string' },
+          message: { type: 'string' },
         },
         example: {
           deleted: true,
           path: 'EngOps/Workstations',
-          flowModelsDeleted: 15,
+          message: 'Page deleted: EngOps/Workstations',
         },
       },
       ExportResponse: {
-        type: 'object',
-        description: 'Exported page configuration with path',
-        properties: {
-          page: {
+        allOf: [
+          { $ref: '#/components/schemas/Recipe' },
+          {
             type: 'object',
-            description: 'Page settings (title, icon, route)',
             properties: {
-              title: { type: 'string' },
-              icon: { type: 'string' },
-              route: { type: 'string' },
+              path: { type: 'string', description: 'Route path of the exported page' },
             },
           },
-          collections: {
-            type: 'object',
-            additionalProperties: { type: 'string' },
-            description: 'Map of collection aliases to internal names',
-          },
-          layout: {
-            type: 'object',
-            description: 'Grid layout configuration',
-          },
-          blocks: {
-            type: 'object',
-            additionalProperties: { $ref: '#/components/schemas/BlockConfig' },
-            description: 'Block configurations keyed by name',
-          },
-          path: {
-            type: 'string',
-            description: 'Route path of the exported page',
-          },
-        },
-        example: {
-          page: { title: 'Workstations', route: 'EngOps/Workstations' },
-          collections: { WorkStation: 't_9dx8b5vb55b' },
-          layout: { rows: [{ columns: [{ width: 24, blocks: [{ $ref: '#/blocks/main_table' }] }] }] },
-          blocks: {
-            main_table: {
-              type: 'TableBlockModel',
-              collection: 'WorkStation',
-              columns: [{ field: 'name' }, { field: 'status' }],
-            },
-          },
-          path: 'EngOps/Workstations',
-        },
+        ],
       },
       ExportAllResponse: {
         type: 'object',
-        description: 'Full UI snapshot with all pages',
         properties: {
-          version: {
-            type: 'string',
-            description: 'Snapshot format version',
-          },
-          exported_at: {
-            type: 'string',
-            format: 'date-time',
-            description: 'Export timestamp',
-          },
-          collections: {
-            type: 'object',
-            additionalProperties: { type: 'string' },
-            description: 'Global collection alias mappings',
-          },
+          version: { type: 'string' },
+          exportedAt: { type: 'string', format: 'date-time' },
           pages: {
             type: 'array',
-            description: 'Array of page configurations',
             items: {
               type: 'object',
               properties: {
-                page: { $ref: '#/components/schemas/PageConfig' },
+                path: { type: 'string' },
+                recipe: { $ref: '#/components/schemas/Recipe' },
+                error: { type: 'string' },
               },
             },
-          },
-          pageCount: {
-            type: 'integer',
-            description: 'Number of pages included in the export',
           },
         },
       },
       ErrorResponse: {
         type: 'object',
         properties: {
-          error: {
-            type: 'string',
-            description: 'Error type (e.g., "Validation failed", "Conflict", "Not found")',
-          },
-          message: {
-            type: 'string',
-            description: 'Detailed error message',
-          },
-        },
-      },
-      PageConfig: {
-        type: 'object',
-        description: 'JSON page configuration structure',
-        required: ['page', 'layout', 'blocks'],
-        properties: {
-          page: {
-            type: 'object',
-            required: ['title'],
-            properties: {
-              title: { type: 'string', description: 'Page title displayed in navigation' },
-              icon: { type: 'string', description: 'Ant Design icon name (e.g., "DesktopOutlined")' },
-              route: { type: 'string', description: 'Route path (auto-generated from title if omitted)' },
-            },
-          },
-          collections: {
-            type: 'object',
-            additionalProperties: { type: 'string' },
-            description: 'Map of collection aliases to internal names (e.g., {"WorkStation": "t_9dx8b5vb55b"})',
-          },
-          layout: {
-            type: 'object',
-            required: ['rows'],
-            properties: {
-              rows: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    columns: {
-                      type: 'array',
-                      items: {
-                        type: 'object',
-                        properties: {
-                          width: { type: 'integer', minimum: 1, maximum: 24, description: 'Column width out of 24' },
-                          blocks: {
-                            type: 'array',
-                            items: {
-                              type: 'object',
-                              properties: {
-                                $ref: { type: 'string', description: 'Reference to block (e.g., "#/blocks/table1")' },
-                              },
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-          blocks: {
-            type: 'object',
-            additionalProperties: {
-              $ref: '#/components/schemas/BlockConfig',
-            },
-          },
-        },
-      },
-      BlockConfig: {
-        type: 'object',
-        description: 'Block configuration (TableBlockModel, ChartBlockModel, etc.)',
-        properties: {
-          type: {
-            type: 'string',
-            enum: ['TableBlockModel', 'ChartBlockModel', 'DetailsBlockModel', 'FormBlockModel', 'MarkdownBlockModel'],
-            description: 'Block type',
-          },
-          collection: {
-            type: 'string',
-            description: 'Collection alias or internal name',
-          },
-        },
-      },
-      TableBlockConfig: {
-        type: 'object',
-        properties: {
-          type: { type: 'string', enum: ['TableBlockModel'] },
-          collection: { type: 'string' },
-          columns: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                field: { type: 'string', description: 'Field name' },
-                sortable: { type: 'boolean' },
-                width: { type: 'integer' },
-                fixed: { type: 'string', enum: ['left', 'right'] },
-              },
-            },
-          },
-          actions: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                type: { type: 'string', enum: ['filter', 'view', 'edit', 'delete', 'create', 'refresh', 'export'] },
-              },
-            },
-          },
-          pageSize: { type: 'integer', default: 20 },
-        },
-      },
-      ChartBlockConfig: {
-        type: 'object',
-        properties: {
-          type: { type: 'string', enum: ['ChartBlockModel'] },
-          collection: { type: 'string' },
-          chart: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['pie', 'bar', 'line', 'area', 'scatter', 'dualAxes'] },
-              dimension: { type: 'string', description: 'X-axis or category field' },
-              measure: {
-                type: 'object',
-                properties: {
-                  field: { type: 'string' },
-                  aggregation: { type: 'string', enum: ['count', 'sum', 'avg', 'min', 'max'] },
-                },
-              },
-              options: {
-                type: 'object',
-                properties: {
-                  legend: { type: 'boolean' },
-                  tooltip: { type: 'boolean' },
-                  labelType: { type: 'string', enum: ['percent', 'value', 'both', 'none'] },
-                },
-              },
-            },
-          },
+          error: { type: 'string' },
+          message: { type: 'string' },
         },
       },
     },
@@ -405,9 +455,9 @@ export default {
     '/ui-snapshot:create': {
       post: {
         tags: ['ui-snapshot'],
-        summary: 'Create page from JSON',
+        summary: 'Create page from Recipe',
         description:
-          'Creates a new UI page from JSON configuration. The JSON defines the page structure, layout, blocks, and collection mappings. If the page already exists, the request fails unless force=true is specified.',
+          'Creates a new UI page from a Recipe JSON configuration. The Recipe defines the page structure, layout, blocks, and collection mappings in a human-readable format.',
         requestBody: {
           required: true,
           content: {
@@ -426,35 +476,18 @@ export default {
             },
           },
           400: {
-            description: 'Bad request - missing required page field',
+            description: 'Invalid Recipe format',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
-                example: { error: 'Bad request', message: 'Missing required field: page' },
               },
             },
           },
           409: {
-            description: 'Conflict - page already exists at the specified path',
+            description: 'Page already exists (use force=true to overwrite)',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
-                example: {
-                  error: 'Conflict',
-                  message: 'Page already exists at path: EngOps/Workstations. Use force=true to overwrite.',
-                },
-              },
-            },
-          },
-          422: {
-            description: 'Validation failed - JSON structure is invalid',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' },
-                example: {
-                  error: 'Validation failed',
-                  message: "JSON validation failed: Missing required field: page.title; Block 'table1': columns[0] requires 'field'",
-                },
               },
             },
           },
@@ -465,8 +498,7 @@ export default {
       post: {
         tags: ['ui-snapshot'],
         summary: 'Delete page by path',
-        description:
-          'Deletes a UI page and all its associated flowModels by route path. The route path is the hierarchical navigation path (e.g., "EngOps/Workstations").',
+        description: 'Deletes a UI page and all its associated flowModels by route path.',
         requestBody: {
           required: true,
           content: {
@@ -484,21 +516,11 @@ export default {
               },
             },
           },
-          400: {
-            description: 'Bad request - missing path field',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' },
-                example: { error: 'Bad request', message: 'Missing required field: path' },
-              },
-            },
-          },
           404: {
-            description: 'Page not found at the specified path',
+            description: 'Page not found',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
-                example: { error: 'Not found', message: 'Page not found at path: EngOps/Workstations' },
               },
             },
           },
@@ -508,9 +530,8 @@ export default {
     '/ui-snapshot:export': {
       get: {
         tags: ['ui-snapshot'],
-        summary: 'Export page to JSON',
-        description:
-          'Exports a single UI page to JSON format. The exported JSON can be used to recreate the page or serve as a template.',
+        summary: 'Export page to Recipe',
+        description: 'Exports a single UI page to Recipe format. The exported Recipe can be used to recreate the page.',
         parameters: [
           {
             name: 'path',
@@ -518,7 +539,6 @@ export default {
             required: true,
             schema: { type: 'string' },
             description: 'Route path of the page to export (e.g., "EngOps/Workstations")',
-            example: 'EngOps/Workstations',
           },
         ],
         responses: {
@@ -530,16 +550,8 @@ export default {
               },
             },
           },
-          400: {
-            description: 'Bad request - missing path parameter',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' },
-              },
-            },
-          },
           404: {
-            description: 'Page not found at the specified path',
+            description: 'Page not found',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
@@ -553,29 +565,13 @@ export default {
       get: {
         tags: ['ui-snapshot'],
         summary: 'Export all pages',
-        description:
-          'Exports the entire UI (all pages) to a single JSON snapshot. Useful for backups or migrating the UI to another instance.',
+        description: 'Exports all UI pages to Recipe format. Useful for backups or migration.',
         responses: {
           200: {
             description: 'All pages exported successfully',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ExportAllResponse' },
-                example: {
-                  version: '1.0',
-                  exported_at: '2026-02-26T14:30:00.000Z',
-                  collections: { Collection_abc: 't_abc123' },
-                  pages: [{ page: { page: { title: 'Example' }, layout: { rows: [] }, blocks: {} } }],
-                  pageCount: 1,
-                },
-              },
-            },
-          },
-          500: {
-            description: 'Export failed',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' },
               },
             },
           },

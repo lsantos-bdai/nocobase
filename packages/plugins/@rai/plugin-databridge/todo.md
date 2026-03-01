@@ -19,14 +19,22 @@
 
 ### what I want
 - [ ] I want to delete our entire frontend user interface and remake it all using only code.
-- [ ] I want to create the frontend how I want with no code and then from another plugin admin/setting panel save the state. This would then create a template for each block or something of the sort. I want to reuse as many existing features/infra as possible leveraging the existing template and routes features. There should be an additional config. This additional config would fill in the gaps like positioning (if easy), and block -> table routing for programatic updates.
 
-- [ ] If I delete all tables and reimport them how do I configure the UI to be aware of the new table with the same schema but different name? All of the tables/pages/groups were created with no code and point directly to a specific table. Can this be modified programmatically?
-- [ ] how do I update schemas programmatically, what if it's a breaking change? Are there enough tools such that I can create an admin script that will (1) create the new collection/table based off of an openapi spec (2) backfill data (3) update the gui to point to the new table. For 2, I'm okay with this being somewhat manual. (i.e export data as csv/json, update data accordingly to meet the new schema)
+
+- [ ] finish json -> page for workstations and arm station
+  - [ ] don't use `t_*` use title instead with a step for resolution
+- [ ] create admin panel where we can
+  - [ ] create new routes/pages
+  - [ ] save entire page configs as `page_template`
+  - [ ] deploy any `page_template` to any routes/pages
+  - [ ] I envision on the left side panel are all current routes, clicking on a route/page shows the current config for that page (via extract.) We can choose to save the config as a new `page_template` or overwrite an existing one. We can also choose to load a page template and deploy it to the route/page. We can also just choose to redeploy a template to a page via force=true.
 
 - [ ] reingest schemas but make name unique
 - [ ] openapi schemas need to be migratable
 - [ ] collections were made using openapi spec and admin script, same spec needs to be generated via schama management
+
+
+
 
 - [X] add proper documentation to all of the other collection endpoint
 - [X] how are users supposed to use databridge_platforms Platform management what is `filterByTk`? If this is the id for the platform how do expect the user to get this using the api? `list` doesn't provide the id for the platform.

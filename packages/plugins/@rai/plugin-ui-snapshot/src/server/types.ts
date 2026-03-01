@@ -1,289 +1,209 @@
 /**
- * JSON Configuration Types for UI Snapshot Plugin
+ * Recipe Format Types
  *
- * These types define the structure of JSON configuration files used to
- * define and recreate NocoBase UI pages programmatically.
+ * A "recipe" is a human-readable JSON configuration (~100 lines) that can
+ * losslessly recreate a full NocoBase flowModel tree (~22k lines).
+ *
+ * Key Principle: Export → Import → Export should produce identical JSON (except UIDs).
  */
 
 // ============================================================================
-// Page Configuration
+// Recipe Format (Top Level)
 // ============================================================================
 
-/**
- * Root page configuration
- */
-export interface PageConfig {
-  page: PageSettings;
-  collections?: Record<string, string>; // Alias → internal collection name
-  layout: LayoutConfig;
-  blocks: Record<string, BlockConfig>;
+export interface Recipe {
+  page: PageConfig;
+  collections?: Record<string, string>; // alias → t_xxx
+  layout: Layout;
+  blocks: Record<string, Block>;
 }
 
-/**
- * Page settings (title, icon, route)
- */
-export interface PageSettings {
+export interface PageConfig {
   title: string;
+  route?: string;
   icon?: string;
-  route?: string; // Optional - auto-generated if omitted
 }
 
 // ============================================================================
 // Layout Configuration
 // ============================================================================
 
-/**
- * Grid layout configuration (24-column system)
- */
-export interface LayoutConfig {
-  rows: LayoutRow[];
+export interface Layout {
+  rows: Row[];
 }
 
-/**
- * A single row in the layout grid
- */
-export interface LayoutRow {
-  columns: LayoutColumn[];
+export interface Row {
+  columns: Column[];
 }
 
-/**
- * A column within a row
- */
-export interface LayoutColumn {
-  width: number; // Out of 24
-  blocks: BlockReference[];
-}
-
-/**
- * Reference to a block definition
- */
-export interface BlockReference {
-  $ref: string; // e.g., "#/blocks/workstation_table"
+export interface Column {
+  width: number; // out of 24
+  blocks: string[]; // block IDs referencing keys in Recipe.blocks
 }
 
 // ============================================================================
-// Block Configurations
+// Block Types (Discriminated Union)
 // ============================================================================
 
-/**
- * Union type for all block configurations
- */
-export type BlockConfig = TableBlockConfig | ChartBlockConfig | DetailsBlockConfig | FormBlockConfig | MarkdownBlockConfig;
+export type Block =
+  | TableBlock
+  | ChartBlock
+  | DetailsBlock
+  | FormBlock
+  | MarkdownBlock;
 
-/**
- * Base properties shared by all blocks
- */
-export interface BaseBlockConfig {
-  type: string;
-  collection: string; // Uses alias, resolved at creation time
-  title?: string;
-}
+// ----------------------------------------------------------------------------
+// Table Block
+// ----------------------------------------------------------------------------
 
-/**
- * Table block configuration
- */
-export interface TableBlockConfig extends BaseBlockConfig {
-  type: 'TableBlockModel';
-  columns: TableColumnConfig[];
-  toolbarActions?: ToolbarActionConfig[];
-  rowActions?: RowActionConfig[];
-  /** @deprecated Use toolbarActions instead */
-  actions?: TableActionConfig[];
-  defaultSort?: {
-    field: string;
-    order: 'asc' | 'desc';
+export interface TableBlock {
+  type: 'table';
+  collection: string;
+  columns: (string | ColumnConfig)[];
+  actions?: {
+    toolbar?: ToolbarAction[];
+    row?: RowAction[];
   };
   pageSize?: number;
+  defaultSort?: { field: string; order: 'asc' | 'desc' };
   quickEdit?: boolean;
 }
 
-/**
- * Table column configuration
- */
-export interface TableColumnConfig {
+export interface ColumnConfig {
   field: string;
-  title?: string;
+  displayType?: DisplayType;
   width?: number;
   sortable?: boolean;
   fixed?: 'left' | 'right';
-  hidden?: boolean;
-  displayType?: 'text' | 'checkbox' | 'date' | 'number' | 'select' | 'tag' | 'link' | 'image';
-  /** @deprecated Use displayType instead */
-  fieldType?: 'text' | 'checkbox' | 'boolean';
-  sortIndex?: number;
 }
 
-/**
- * Toolbar action configuration (filter, create, refresh, export)
- */
-export interface ToolbarActionConfig {
-  type: 'filter' | 'create' | 'refresh' | 'export';
+export type DisplayType =
+  | 'text'
+  | 'checkbox'
+  | 'date'
+  | 'number'
+  | 'select'
+  | 'tag'
+  | 'link'
+  | 'image';
+
+export type ToolbarAction = 'filter' | 'create' | 'refresh' | 'export';
+
+export type RowAction = 'delete' | ViewAction | EditAction;
+
+export interface ViewAction {
+  type: 'view';
+  popup: Popup;
 }
 
-/**
- * Row action configuration (view, edit, delete with inner pages)
- */
-export interface RowActionConfig {
-  type: 'view' | 'edit' | 'delete' | 'link' | 'popup';
-  buttonType?: 'link' | 'primary' | 'default';
-  confirmText?: string;
-  innerPage?: InnerPageConfig;
+export interface EditAction {
+  type: 'edit';
+  popup: Popup;
 }
 
-/**
- * Inner page configuration (for view/edit popups)
- */
-export interface InnerPageConfig {
+// ----------------------------------------------------------------------------
+// Popup (for View/Edit Actions)
+// ----------------------------------------------------------------------------
+
+export interface Popup {
   displayTitle?: boolean;
-  enableTabs?: boolean;
-  tabs?: TabConfig[];
+  tabs: Tab[];
 }
 
-/**
- * Tab configuration within inner page
- */
-export interface TabConfig {
+export interface Tab {
   title: string;
   icon?: string;
-  blocks: BlockConfig[];
+  blocks: InlineBlock[]; // inline block definitions (NocoBase tree model requires this)
 }
 
-/**
- * Table action configuration
- * @deprecated Use ToolbarActionConfig or RowActionConfig instead
- */
-export interface TableActionConfig {
-  type: 'filter' | 'view' | 'edit' | 'delete' | 'create' | 'refresh' | 'export';
-  position?: 'toolbar' | 'row';
-  confirmText?: string;
+// Inline blocks for popups - same as Block but without 'table' type to avoid recursion issues
+export type InlineBlock =
+  | DetailsBlockInline
+  | FormBlockInline
+  | MarkdownBlockInline;
+
+export interface DetailsBlockInline {
+  type: 'details';
+  collection: string;
+  fields: (string | FieldConfig)[];
+  actions?: BlockAction[];
 }
 
-/**
- * Chart block configuration
- */
-export interface ChartBlockConfig extends BaseBlockConfig {
-  type: 'ChartBlockModel';
-  chart: ChartSettings;
+export interface FormBlockInline {
+  type: 'form';
+  collection: string;
+  fields: (string | FormFieldConfig)[];
+  actions?: BlockAction[];
 }
 
-/**
- * Chart settings
- */
-export interface ChartSettings {
-  type: 'pie' | 'bar' | 'line' | 'area' | 'scatter' | 'dualAxes';
-  dimension: string; // X-axis field or pie category
-  measure: ChartMeasure;
-  secondaryMeasure?: ChartMeasure; // For dual axes
-  options?: ChartOptions;
+export interface MarkdownBlockInline {
+  type: 'markdown';
+  content: string;
 }
 
-/**
- * Chart measure configuration
- */
-export interface ChartMeasure {
+// ----------------------------------------------------------------------------
+// Chart Block
+// ----------------------------------------------------------------------------
+
+export interface ChartBlock {
+  type: 'chart';
+  collection: string;
+  chartType: 'pie' | 'bar' | 'line' | 'area';
+  dimension: string;
+  measure: { field: string; aggregation: Aggregation };
+  options?: { legend?: boolean; tooltip?: boolean };
+}
+
+export type Aggregation = 'count' | 'sum' | 'avg' | 'min' | 'max';
+
+// ----------------------------------------------------------------------------
+// Details Block
+// ----------------------------------------------------------------------------
+
+export interface DetailsBlock {
+  type: 'details';
+  collection: string;
+  fields: (string | FieldConfig)[];
+  actions?: BlockAction[];
+}
+
+export interface FieldConfig {
   field: string;
-  aggregation: 'count' | 'sum' | 'avg' | 'min' | 'max';
-  alias?: string;
+  span?: number; // grid span out of 24
 }
 
-/**
- * Chart display options
- */
-export interface ChartOptions {
-  legend?: boolean;
-  tooltip?: boolean;
-  labelType?: 'percent' | 'value' | 'both' | 'none';
-  colors?: string[];
-  xAxisTitle?: string;
-  yAxisTitle?: string;
+export type BlockAction = 'edit' | 'delete' | { type: 'edit' | 'view'; popup: Popup };
+
+// ----------------------------------------------------------------------------
+// Form Block
+// ----------------------------------------------------------------------------
+
+export interface FormBlock {
+  type: 'form';
+  collection: string;
+  fields: (string | FormFieldConfig)[];
+  actions?: BlockAction[];
 }
 
-/**
- * Details block configuration
- */
-export interface DetailsBlockConfig extends BaseBlockConfig {
-  type: 'DetailsBlockModel';
-  fields: DetailsFieldConfig[];
-  actions?: DetailsActionConfig[];
-}
-
-/**
- * Details field configuration
- */
-export interface DetailsFieldConfig {
-  field: string;
-  title?: string;
-  span?: number; // Grid span (out of 24)
-}
-
-/**
- * Details action configuration
- */
-export interface DetailsActionConfig {
-  type: 'edit' | 'delete' | 'link';
-  label?: string;
-}
-
-/**
- * Form block configuration
- */
-export interface FormBlockConfig extends BaseBlockConfig {
-  type: 'FormBlockModel';
-  fields: FormFieldConfig[];
-  submitAction?: {
-    label?: string;
-    successMessage?: string;
-  };
-}
-
-/**
- * Form field configuration
- */
 export interface FormFieldConfig {
   field: string;
-  title?: string;
   required?: boolean;
   placeholder?: string;
-  defaultValue?: unknown;
 }
 
-/**
- * Markdown block configuration
- */
-export interface MarkdownBlockConfig {
-  type: 'MarkdownBlockModel';
+// ----------------------------------------------------------------------------
+// Markdown Block
+// ----------------------------------------------------------------------------
+
+export interface MarkdownBlock {
+  type: 'markdown';
   content: string;
 }
 
 // ============================================================================
-// Full UI Snapshot
+// Route/Page Resolution Types (used by route-resolver.ts)
 // ============================================================================
 
-/**
- * Complete UI snapshot configuration
- */
-export interface UISnapshotConfig {
-  version: string;
-  exported_at?: string;
-  collections?: Record<string, string>;
-  pages: PageSnapshotEntry[];
-}
-
-/**
- * Page entry in snapshot (can be include or inline)
- */
-export interface PageSnapshotEntry {
-  $include?: string;
-  page?: PageConfig;
-}
-
-// ============================================================================
-// Route/Page Resolution Types
-// ============================================================================
-
-/**
- * Resolved route information
- */
 export interface ResolvedRoute {
   routeId: number;
   schemaUid: string;
@@ -292,15 +212,12 @@ export interface ResolvedRoute {
   path: string;
 }
 
-/**
- * Route hierarchy entry (from desktopRoutes)
- */
 export interface RouteEntry {
   id: number;
   title: string;
   path?: string;
   schemaUid?: string;
-  type?: 'group' | 'page';
+  type?: string;
   children?: RouteEntry[];
 }
 
@@ -308,9 +225,6 @@ export interface RouteEntry {
 // FlowModel Types (Internal NocoBase Structure)
 // ============================================================================
 
-/**
- * FlowModel record structure
- */
 export interface FlowModel {
   uid: string;
   name?: string;
@@ -324,9 +238,6 @@ export interface FlowModel {
   subModels?: Record<string, FlowModel | FlowModel[]>;
 }
 
-/**
- * Grid settings within BlockGridModel stepParams
- */
 export interface GridSettings {
   grid: {
     rows: Record<string, string[][]>; // rowId → columns (each column is array of block UIDs)
@@ -339,16 +250,10 @@ export interface GridSettings {
 // API Request/Response Types
 // ============================================================================
 
-/**
- * Create action request body - accepts PageConfig fields directly plus force option
- */
-export interface CreateRequest extends PageConfig {
+export interface CreateRequest extends Recipe {
   force?: boolean;
 }
 
-/**
- * Create action response
- */
 export interface CreateResponse {
   routeId: number;
   pageUid: string;
@@ -356,45 +261,14 @@ export interface CreateResponse {
   path: string;
 }
 
-/**
- * Delete action request body
- */
 export interface DeleteRequest {
   path: string;
 }
 
-/**
- * Delete action response
- */
 export interface DeleteResponse {
   deleted: boolean;
   path: string;
   flowModelsDeleted: number;
 }
 
-/**
- * Export action response (returns page config object directly)
- */
-export interface ExportResponse extends PageConfig {
-  path: string;
-}
-
-// ============================================================================
-// Parsed/Validated Config Types
-// ============================================================================
-
-/**
- * Validated page config with resolved collection names
- */
-export interface ValidatedPageConfig extends PageConfig {
-  _resolvedCollections: Record<string, string>; // alias → actual internal name
-}
-
-/**
- * Block with resolved UID and collection
- */
-export interface ResolvedBlock {
-  uid: string;
-  config: BlockConfig;
-  collectionName: string; // Resolved internal name
-}
+export type ExportResponse = Recipe;
