@@ -483,9 +483,29 @@ export class Exporter {
 
     // Extract blocks from grid's items
     const blockModels = this.getSubModels(gridModel, 'items', modelMap);
+
+    // Find UIDs that are targets of ReferenceBlockModels in this grid.
+    // When NocoBase uses a template reference, the grid may contain BOTH the
+    // ReferenceBlockModel AND the resolved target block. We should only extract
+    // via the reference to avoid duplicates.
+    const referencedUids = new Set<string>();
+    for (const model of blockModels) {
+      if (model.use === 'ReferenceBlockModel') {
+        const targetUid = (model.stepParams as any)?.referenceSettings?.target?.targetUid;
+        if (targetUid) {
+          referencedUids.add(targetUid);
+        }
+      }
+    }
+
     const blocks: InlineBlock[] = [];
 
     for (const blockModel of blockModels) {
+      // Skip blocks that are referenced by a ReferenceBlockModel - they'll be extracted via the reference
+      if (referencedUids.has(blockModel.uid)) {
+        continue;
+      }
+
       const block = await this.extractInlineBlock(blockModel, modelMap);
       if (block) {
         blocks.push(block);
