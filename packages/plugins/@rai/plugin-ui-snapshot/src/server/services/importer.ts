@@ -690,6 +690,14 @@ export class Importer {
   private generateChartBlock(block: ChartBlock, uid: string, parentId: string, sortIndex: number): void {
     const collectionName = this.resolveCollection(block.collection);
 
+    // Build chart-type-specific builder options
+    const builderOptions = this.buildChartBuilderOptions(
+      block.chartType,
+      block.dimension,
+      block.measure.field,
+      block.options
+    );
+
     const stepParams: Record<string, unknown> = {
       chartSettings: {
         configure: {
@@ -703,13 +711,7 @@ export class Importer {
           chart: {
             option: {
               mode: 'basic',
-              builder: {
-                type: block.chartType,
-                xField: block.dimension,
-                yField: block.measure.field,
-                legend: block.options?.legend ?? true,
-                tooltip: block.options?.tooltip ?? true,
-              },
+              builder: builderOptions,
             },
           },
         },
@@ -726,6 +728,47 @@ export class Importer {
       stepParams,
       flowRegistry: {},
     });
+  }
+
+  /**
+   * Build chart builder options based on chart type
+   * Pie charts use pieCategory/pieValue, others use xField/yField
+   */
+  private buildChartBuilderOptions(
+    chartType: string,
+    dimension: string,
+    measureField: string,
+    options?: { legend?: boolean; tooltip?: boolean }
+  ): Record<string, unknown> {
+    const baseOptions = {
+      type: chartType,
+      legend: options?.legend ?? true,
+      tooltip: options?.tooltip ?? true,
+    };
+
+    switch (chartType) {
+      case 'pie':
+        return {
+          ...baseOptions,
+          label: false,
+          pieCategory: dimension,
+          pieValue: measureField,
+          pieRadiusInner: 0,
+          pieRadiusOuter: 70,
+          pieLabelType: 'percent',
+        };
+
+      case 'bar':
+      case 'line':
+      case 'area':
+      case 'scatter':
+      default:
+        return {
+          ...baseOptions,
+          xField: dimension,
+          yField: measureField,
+        };
+    }
   }
 
   /**
