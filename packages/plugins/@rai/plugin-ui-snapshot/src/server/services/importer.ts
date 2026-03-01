@@ -263,8 +263,14 @@ export class Importer {
       flowRegistry: {},
     });
 
-    // Generate columns
+    // Generate row actions FIRST (sortIndex 0) so Actions column appears first
     let columnIndex = 0;
+    if (block.actions?.row && block.actions.row.length > 0) {
+      const actionsColumnUid = generateUid();
+      this.generateActionsColumn(block.actions.row, actionsColumnUid, uid, collectionName, columnIndex++);
+    }
+
+    // Generate columns AFTER actions (sortIndex 1, 2, 3...)
     for (const column of block.columns) {
       const columnUid = generateUid();
       this.generateTableColumn(column, columnUid, uid, collectionName, columnIndex++);
@@ -277,12 +283,6 @@ export class Importer {
         const actionUid = generateUid();
         this.generateToolbarAction(action, actionUid, uid, actionIndex++);
       }
-    }
-
-    // Generate row actions (in TableActionsColumnModel)
-    if (block.actions?.row && block.actions.row.length > 0) {
-      const actionsColumnUid = generateUid();
-      this.generateActionsColumn(block.actions.row, actionsColumnUid, uid, collectionName, columnIndex);
     }
   }
 
@@ -795,6 +795,7 @@ export class Importer {
           init: {
             dataSourceKey: 'main',
             collectionName,
+            filterByTk: '{{ctx.view.inputArgs.filterByTk}}',
           },
         },
       },
@@ -991,13 +992,13 @@ export class Importer {
   }
 
   /**
-   * Generate block action (edit/delete)
+   * Generate block action (edit/delete/popup)
    */
   private generateBlockAction(
     action: BlockAction,
     uid: string,
     blockUid: string,
-    _collectionName: string,
+    collectionName: string,
     sortIndex: number
   ): void {
     if (action === 'edit') {
@@ -1022,8 +1023,28 @@ export class Importer {
         stepParams: { actionSettings: { init: {} } },
         flowRegistry: {},
       });
+    } else if (typeof action === 'object' && 'popup' in action) {
+      // Handle popup actions (edit or view with popup)
+      const modelType = action.type === 'view' ? 'ViewActionModel' : 'EditActionModel';
+
+      this.generatedModels.push({
+        uid,
+        use: modelType,
+        parentId: blockUid,
+        subKey: 'actions',
+        subType: 'array',
+        sortIndex,
+        stepParams: {
+          buttonSettings: { general: { type: 'link', icon: null } },
+          actionSettings: { init: {} },
+        },
+        flowRegistry: {},
+      });
+
+      // Generate popup
+      const pageUid = generateUid();
+      this.generatePopup(action.popup, pageUid, uid, collectionName);
     }
-    // TODO: Handle popup actions
   }
 
   /**

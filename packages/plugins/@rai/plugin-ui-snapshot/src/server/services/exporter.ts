@@ -678,17 +678,27 @@ export class Exporter {
   }
 
   /**
-   * Extract block actions (edit, delete, etc.)
+   * Extract block actions (edit, delete, or popup actions)
    */
   private extractBlockActions(model: FlowModel, modelMap: Map<string, FlowModel>): BlockAction[] {
     const actions: BlockAction[] = [];
     const actionModels = this.getSubModels(model, 'actions', modelMap);
 
     for (const action of actionModels) {
-      if (action.use === 'EditActionModel') {
-        actions.push('edit');
-      } else if (action.use === 'DeleteActionModel') {
+      if (action.use === 'DeleteActionModel') {
         actions.push('delete');
+      } else if (action.use === 'EditActionModel' || action.use === 'ViewActionModel') {
+        // Check if action has a popup
+        const popup = this.extractPopup(action, modelMap);
+        if (popup) {
+          actions.push({
+            type: action.use === 'ViewActionModel' ? 'view' : 'edit',
+            popup,
+          });
+        } else {
+          // Simple action without popup
+          actions.push(action.use === 'EditActionModel' ? 'edit' : 'delete');
+        }
       }
     }
 
