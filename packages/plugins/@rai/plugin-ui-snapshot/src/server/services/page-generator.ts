@@ -275,7 +275,7 @@ export class PageGenerator {
   }
 
   /**
-   * Create a TableBlockModel with columns and actions saved individually
+   * Create a TableBlockModel with columns, toolbar actions, and row actions saved individually
    */
   private async createTableBlock(
     config: TableBlockConfig,
@@ -297,10 +297,58 @@ export class PageGenerator {
       await this.saveFlowModelViaApi(col.flowModel as Record<string, unknown>);
     }
 
-    // Save each action individually
+    // Save each toolbar action individually
     for (const action of table.actions) {
       action.flowModel.parentId = uid;
       await this.saveFlowModelViaApi(action.flowModel as Record<string, unknown>);
+    }
+
+    // Save TableActionsColumnModel with row actions if present
+    if (table.actionsColumn) {
+      table.actionsColumn.flowModel.parentId = uid;
+      await this.saveFlowModelViaApi(table.actionsColumn.flowModel as Record<string, unknown>);
+
+      // Save each row action
+      for (const rowAction of table.actionsColumn.rowActions) {
+        rowAction.flowModel.parentId = table.actionsColumn.uid;
+        await this.saveFlowModelViaApi(rowAction.flowModel as Record<string, unknown>);
+
+        // Save inner page and its children if present
+        if (rowAction.innerPage) {
+          await this.saveInnerPage(rowAction.innerPage, rowAction.uid);
+        }
+      }
+    }
+  }
+
+  /**
+   * Save an inner page (ChildPageModel) and all its children
+   */
+  private async saveInnerPage(innerPage: any, actionUid: string): Promise<void> {
+    // Update parent reference
+    innerPage.flowModel.parentId = actionUid;
+    await this.saveFlowModelViaApi(innerPage.flowModel as Record<string, unknown>);
+
+    // Save each tab
+    for (const tab of innerPage.tabs) {
+      tab.flowModel.parentId = innerPage.uid;
+      await this.saveFlowModelViaApi(tab.flowModel as Record<string, unknown>);
+
+      // Save grid
+      tab.gridFlowModel.parentId = tab.uid;
+      await this.saveFlowModelViaApi(tab.gridFlowModel as Record<string, unknown>);
+
+      // Save each block in the tab
+      for (const block of tab.blocks) {
+        block.flowModel.parentId = tab.gridUid;
+        await this.saveFlowModelViaApi(block.flowModel as Record<string, unknown>);
+
+        // Save block children (columns, items, actions)
+        for (const child of block.children) {
+          child.parentId = block.uid;
+          await this.saveFlowModelViaApi(child as Record<string, unknown>);
+        }
+      }
     }
   }
 

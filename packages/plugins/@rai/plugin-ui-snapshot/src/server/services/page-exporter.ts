@@ -262,47 +262,198 @@ export class PageExporter {
     const collectionName = stepParams.resourceSettings?.init?.collectionName || '';
 
     // Find columns - check both descendants and inline subModels
-    let columnModels = descendants.filter((m: any) => m.parentId === model.uid && m.use === 'TableColumnModel');
+    // Include both TableColumnModel and TableActionsColumnModel
+    let columnModels = descendants.filter(
+      (m: any) => m.parentId === model.uid && (m.use === 'TableColumnModel' || m.use === 'TableActionsColumnModel')
+    );
     if (columnModels.length === 0 && model.subModels?.columns) {
       const cols = Array.isArray(model.subModels.columns) ? model.subModels.columns : [model.subModels.columns];
-      columnModels = cols.filter((m: any) => m.use === 'TableColumnModel');
+      columnModels = cols.filter((m: any) => m.use === 'TableColumnModel' || m.use === 'TableActionsColumnModel');
     }
 
-    const columns = columnModels.map((col: any) => ({
-      field: col.stepParams?.fieldSettings?.init?.fieldPath || '',
-      sortable: col.stepParams?.columnSettings?.init?.sortable,
-      width: col.stepParams?.columnSettings?.init?.width,
-      fixed: col.stepParams?.columnSettings?.init?.fixed,
-    }));
+    // Sort columns by sortIndex to preserve order
+    columnModels.sort((a: any, b: any) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
 
-    // Find actions - check both descendants and inline subModels
-    let actionModels = descendants.filter(
+    // Separate regular columns from actions column
+    const regularColumnModels = columnModels.filter((m: any) => m.use === 'TableColumnModel');
+    const actionsColumnModel = columnModels.find((m: any) => m.use === 'TableActionsColumnModel');
+
+    const columns = regularColumnModels.map((col: any, index: number) => {
+      const colStepParams = col.stepParams || {};
+      const tableColumnSettings = colStepParams.tableColumnSettings || {};
+
+      return {
+        field: colStepParams.fieldSettings?.init?.fieldPath || '',
+        // Fix: sortable is at tableColumnSettings.sorter.sorter, not columnSettings.init.sortable
+        sortable: tableColumnSettings.sorter?.sorter,
+        width: tableColumnSettings.width?.width,
+        fixed: tableColumnSettings.fixed?.fixed,
+        // Add displayType from tableColumnSettings.model.use
+        displayType: this.mapDisplayModelToType(tableColumnSettings.model?.use),
+        // Preserve column order
+        sortIndex: col.sortIndex ?? index,
+      };
+    });
+
+    // Find toolbar actions - check both descendants and inline subModels
+    let toolbarActionModels = descendants.filter(
       (m: any) =>
         m.parentId === model.uid &&
-        ['FilterActionModel', 'ViewActionModel', 'EditActionModel', 'DeleteActionModel', 'CreateActionModel'].includes(
-          m.use
-        )
+        ['FilterActionModel', 'CreateActionModel', 'RefreshActionModel', 'ExportActionModel'].includes(m.use)
     );
-    if (actionModels.length === 0 && model.subModels?.actions) {
+    if (toolbarActionModels.length === 0 && model.subModels?.actions) {
       const acts = Array.isArray(model.subModels.actions) ? model.subModels.actions : [model.subModels.actions];
-      actionModels = acts.filter((m: any) =>
-        ['FilterActionModel', 'ViewActionModel', 'EditActionModel', 'DeleteActionModel', 'CreateActionModel'].includes(
-          m.use
-        )
+      toolbarActionModels = acts.filter((m: any) =>
+        ['FilterActionModel', 'CreateActionModel', 'RefreshActionModel', 'ExportActionModel'].includes(m.use)
       );
     }
 
-    const actions = actionModels.map((action: any) => ({
+    const toolbarActions = toolbarActionModels.map((action: any) => ({
       type: this.mapActionModelToType(action.use),
     }));
+
+    // Extract row actions from TableActionsColumnModel
+    const rowActions = this.extractRowActions(actionsColumnModel, descendants);
+
+    // Extract quickEdit setting from tableSettings
+    const quickEdit = stepParams.tableSettings?.quickEdit?.editable;
 
     return {
       type: 'TableBlockModel',
       collection: collectionName,
       columns: columns.filter((c: any) => c.field),
-      actions: actions.length > 0 ? actions : undefined,
+      toolbarActions: toolbarActions.length > 0 ? toolbarActions : undefined,
+      rowActions: rowActions.length > 0 ? rowActions : undefined,
       pageSize: stepParams.tableSettings?.init?.pageSize,
+      quickEdit,
     };
+  }
+
+  /**
+   * Extract row actions from TableActionsColumnModel
+   */
+  private extractRowActions(actionsColumnModel: any, descendants: any[]): any[] {
+    if (!actionsColumnModel) return [];
+
+    // Get actions from subModels.actions
+    let actionModels: any[] = [];
+    if (actionsColumnModel.subModels?.actions) {
+      const acts = actionsColumnModel.subModels.actions;
+      actionModels = Array.isArray(acts) ? acts : [acts];
+    } else {
+      // Try to find from descendants
+      actionModels = descendants.filter(
+        (m: any) =>
+          m.parentId === actionsColumnModel.uid &&
+          ['ViewActionModel', 'EditActionModel', 'DeleteActionModel', 'LinkActionModel', 'PopupActionModel'].includes(
+            m.use
+          )
+      );
+    }
+
+    return actionModels.map((action: any) => {
+      const actionConfig: any = {
+        type: this.mapActionModelToType(action.use),
+      };
+
+      // Check for inner page (ChildPageModel in subModels.page)
+      if (action.subModels?.page) {
+        actionConfig.innerPage = this.extractInnerPage(action.subModels.page, descendants);
+      }
+
+      // Add button type if present
+      const buttonSettings = action.stepParams?.buttonSettings;
+      if (buttonSettings?.general?.type) {
+        actionConfig.buttonType = buttonSettings.general.type;
+      }
+
+      return actionConfig;
+    });
+  }
+
+  /**
+   * Extract inner page configuration from ChildPageModel
+   */
+  private extractInnerPage(pageModel: any, descendants: any[]): any {
+    const pageSettings = pageModel.stepParams?.pageSettings?.general || {};
+
+    const innerPage: any = {
+      displayTitle: pageSettings.displayTitle ?? false,
+      enableTabs: pageSettings.enableTabs ?? true,
+    };
+
+    // Extract tabs
+    if (pageModel.subModels?.tabs) {
+      const tabs = Array.isArray(pageModel.subModels.tabs)
+        ? pageModel.subModels.tabs
+        : [pageModel.subModels.tabs];
+
+      innerPage.tabs = tabs.map((tab: any) => this.extractTab(tab, descendants));
+    }
+
+    return innerPage;
+  }
+
+  /**
+   * Extract tab configuration from ChildPageTabModel
+   */
+  private extractTab(tabModel: any, descendants: any[]): any {
+    const tabSettings = tabModel.stepParams?.pageTabSettings?.tab || {};
+
+    const tab: any = {
+      title: tabSettings.title || 'Untitled',
+    };
+
+    // Extract blocks from grid
+    if (tabModel.subModels?.grid) {
+      const gridModel = tabModel.subModels.grid;
+      tab.blocks = this.extractBlocksFromGrid(gridModel, descendants);
+    }
+
+    return tab;
+  }
+
+  /**
+   * Extract blocks from a BlockGridModel
+   */
+  private extractBlocksFromGrid(gridModel: any, descendants: any[]): any[] {
+    const blocks: any[] = [];
+
+    // Get items from subModels.items
+    let blockModels: any[] = [];
+    if (gridModel.subModels?.items) {
+      const items = gridModel.subModels.items;
+      blockModels = Array.isArray(items) ? items : [items];
+    }
+
+    for (const blockModel of blockModels) {
+      const blockConfig = this.buildBlockConfig(blockModel, descendants);
+      if (blockConfig) {
+        blocks.push(blockConfig);
+      }
+    }
+
+    return blocks;
+  }
+
+  /**
+   * Map display model type to config displayType
+   */
+  private mapDisplayModelToType(modelType: string | undefined): string | undefined {
+    if (!modelType) return undefined;
+
+    const map: Record<string, string> = {
+      DisplayTextFieldModel: 'text',
+      DisplayCheckboxFieldModel: 'checkbox',
+      DisplayDateFieldModel: 'date',
+      DisplayNumberFieldModel: 'number',
+      DisplaySelectFieldModel: 'select',
+      DisplayTagFieldModel: 'tag',
+      DisplayLinkFieldModel: 'link',
+      DisplayImageFieldModel: 'image',
+    };
+
+    return map[modelType];
   }
 
   /**

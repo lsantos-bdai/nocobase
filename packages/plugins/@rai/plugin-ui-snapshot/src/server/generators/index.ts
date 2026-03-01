@@ -19,3 +19,6 @@ export type { GeneratedDetails, GeneratedDetailsItem, GeneratedDetailsAction } f
 
 export { generateForm, saveForm } from './form';
 export type { GeneratedForm, GeneratedFormItem, GeneratedFormAction } from './form';
+
+export { generateInnerPage, generateTab, generateInnerBlock } from './inner-page';
+export type { GeneratedInnerPage, GeneratedTab, GeneratedInnerBlock } from './inner-page';

@@ -85,12 +85,16 @@ export interface BaseBlockConfig {
 export interface TableBlockConfig extends BaseBlockConfig {
   type: 'TableBlockModel';
   columns: TableColumnConfig[];
+  toolbarActions?: ToolbarActionConfig[];
+  rowActions?: RowActionConfig[];
+  /** @deprecated Use toolbarActions instead */
   actions?: TableActionConfig[];
   defaultSort?: {
     field: string;
     order: 'asc' | 'desc';
   };
   pageSize?: number;
+  quickEdit?: boolean;
 }
 
 /**
@@ -103,16 +107,55 @@ export interface TableColumnConfig {
   sortable?: boolean;
   fixed?: 'left' | 'right';
   hidden?: boolean;
-  fieldType?: 'text' | 'checkbox' | 'boolean'; // Display model type
+  displayType?: 'text' | 'checkbox' | 'date' | 'number' | 'select' | 'tag' | 'link' | 'image';
+  /** @deprecated Use displayType instead */
+  fieldType?: 'text' | 'checkbox' | 'boolean';
+  sortIndex?: number;
+}
+
+/**
+ * Toolbar action configuration (filter, create, refresh, export)
+ */
+export interface ToolbarActionConfig {
+  type: 'filter' | 'create' | 'refresh' | 'export';
+}
+
+/**
+ * Row action configuration (view, edit, delete with inner pages)
+ */
+export interface RowActionConfig {
+  type: 'view' | 'edit' | 'delete' | 'link' | 'popup';
+  buttonType?: 'link' | 'primary' | 'default';
+  confirmText?: string;
+  innerPage?: InnerPageConfig;
+}
+
+/**
+ * Inner page configuration (for view/edit popups)
+ */
+export interface InnerPageConfig {
+  displayTitle?: boolean;
+  enableTabs?: boolean;
+  tabs?: TabConfig[];
+}
+
+/**
+ * Tab configuration within inner page
+ */
+export interface TabConfig {
+  title: string;
+  icon?: string;
+  blocks: BlockConfig[];
 }
 
 /**
  * Table action configuration
+ * @deprecated Use ToolbarActionConfig or RowActionConfig instead
  */
 export interface TableActionConfig {
   type: 'filter' | 'view' | 'edit' | 'delete' | 'create' | 'refresh' | 'export';
   position?: 'toolbar' | 'row';
-  confirmText?: string; // For delete actions
+  confirmText?: string;
 }
 
 /**
