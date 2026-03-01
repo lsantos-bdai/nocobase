@@ -325,29 +325,61 @@ export class Importer {
       (stepParams.tableColumnSettings as any).fixed = { fixed: config.fixed };
     }
 
-    this.generatedModels.push({
-      uid,
-      use: 'TableColumnModel',
-      parentId: tableUid,
-      subKey: 'columns',
-      subType: 'array',
-      sortIndex,
-      stepParams,
-      flowRegistry: {},
-      subModels: {
-        field: {
-          uid: fieldUid,
-          use: displayModel,
-          props: null,
-          parentId: uid,
-          subKey: 'field',
-          subType: 'object',
-          stepParams: {},
-          sortIndex: 0,
-          flowRegistry: {},
+    // If column has a popup (relation field), generate separately
+    if (config.popup) {
+      // Generate TableColumnModel without inline subModels
+      this.generatedModels.push({
+        uid,
+        use: 'TableColumnModel',
+        parentId: tableUid,
+        subKey: 'columns',
+        subType: 'array',
+        sortIndex,
+        stepParams,
+        flowRegistry: {},
+      });
+
+      // Generate DisplayTextFieldModel separately
+      this.generatedModels.push({
+        uid: fieldUid,
+        use: displayModel,
+        parentId: uid,
+        subKey: 'field',
+        subType: 'object',
+        sortIndex: 0,
+        stepParams: {},
+        flowRegistry: {},
+      });
+
+      // Generate popup under the field model
+      const pageUid = generateUid();
+      this.generatePopup(config.popup, pageUid, fieldUid, collectionName);
+    } else {
+      // No popup - use inline subModels (original behavior)
+      this.generatedModels.push({
+        uid,
+        use: 'TableColumnModel',
+        parentId: tableUid,
+        subKey: 'columns',
+        subType: 'array',
+        sortIndex,
+        stepParams,
+        flowRegistry: {},
+        subModels: {
+          field: {
+            uid: fieldUid,
+            use: displayModel,
+            props: null,
+            parentId: uid,
+            subKey: 'field',
+            subType: 'object',
+            stepParams: {},
+            sortIndex: 0,
+            flowRegistry: {},
+          },
         },
-      },
-    });
+      });
+    }
   }
 
   /**
@@ -585,6 +617,11 @@ export class Importer {
     parentCollectionName: string,
     sortIndex: number
   ): void {
+    // Use block's collection if specified, otherwise fall back to parent
+    const blockCollection = 'collection' in block && block.collection
+      ? this.resolveCollection(block.collection)
+      : parentCollectionName;
+
     switch (block.type) {
       case 'details':
         this.generateDetailsBlock(
@@ -592,7 +629,7 @@ export class Importer {
           uid,
           gridUid,
           sortIndex,
-          parentCollectionName
+          blockCollection
         );
         break;
       case 'form':
@@ -602,7 +639,7 @@ export class Importer {
           uid,
           gridUid,
           sortIndex,
-          parentCollectionName
+          blockCollection
         );
         break;
       case 'markdown':
@@ -1059,8 +1096,8 @@ export class Importer {
       subType: 'array',
       sortIndex,
       stepParams: {
-        markdownSettings: {
-          content: { content: block.content },
+        markdownBlockSettings: {
+          editMarkdown: { content: block.content },
         },
       },
       flowRegistry: {},

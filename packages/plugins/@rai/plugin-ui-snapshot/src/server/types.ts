@@ -75,6 +75,7 @@ export interface ColumnConfig {
   width?: number;
   sortable?: boolean;
   fixed?: 'left' | 'right';
+  popup?: Popup; // For relation field click popups
 }
 
 export type DisplayType =

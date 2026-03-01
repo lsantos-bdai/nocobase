@@ -90,7 +90,7 @@ export class Exporter {
     const blocks: Record<string, Block> = {};
     for (const blockModel of blockModels) {
       const blockId = this.blockUidToId.get(blockModel.uid)!;
-      const block = this.extractBlock(blockModel, modelMap);
+      const block = await this.extractBlock(blockModel, modelMap);
       if (block) {
         blocks[blockId] = block;
       }
@@ -236,7 +236,7 @@ export class Exporter {
   /**
    * Extract a block configuration from a flowModel
    */
-  private extractBlock(model: FlowModel, modelMap: Map<string, FlowModel>): Block | null {
+  private async extractBlock(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<Block | null> {
     switch (model.use) {
       case 'TableBlockModel':
         return this.extractTableBlock(model, modelMap);
@@ -257,7 +257,7 @@ export class Exporter {
   /**
    * Extract TableBlock configuration
    */
-  private extractTableBlock(model: FlowModel, modelMap: Map<string, FlowModel>): TableBlock {
+  private async extractTableBlock(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<TableBlock> {
     const stepParams = model.stepParams as any;
     const collectionName = this.extractCollectionName(model) || '';
     const alias = this.getCollectionAlias(collectionName);
@@ -269,7 +269,7 @@ export class Exporter {
     for (const col of columnModels) {
       if (col.use === 'TableActionsColumnModel') continue; // Skip actions column
 
-      const config = this.extractColumnConfig(col);
+      const config = await this.extractColumnConfig(col, modelMap);
       if (config) {
         columns.push(config);
       }
@@ -293,7 +293,7 @@ export class Exporter {
     if (actionsColumn) {
       const rowActionModels = this.getSubModels(actionsColumn, 'actions', modelMap);
       for (const action of rowActionModels) {
-        const rowAction = this.extractRowAction(action, modelMap);
+        const rowAction = await this.extractRowAction(action, modelMap);
         if (rowAction) {
           rowActions.push(rowAction);
         }
@@ -338,7 +338,10 @@ export class Exporter {
   /**
    * Extract column configuration
    */
-  private extractColumnConfig(model: FlowModel): string | ColumnConfig | null {
+  private async extractColumnConfig(
+    model: FlowModel,
+    modelMap: Map<string, FlowModel>
+  ): Promise<string | ColumnConfig | null> {
     const stepParams = model.stepParams as any;
     const fieldPath = stepParams?.fieldSettings?.init?.fieldPath;
 
@@ -353,8 +356,18 @@ export class Exporter {
     const fixed = tableColumnSettings?.fixed?.fixed;
     const displayType = this.mapModelToDisplayType(displayModel);
 
-    // If only field name needed, return string
-    if (!displayType && !width && sortable === undefined && !fixed) {
+    // Check for relation field popup (DisplayTextFieldModel → ChildPageModel)
+    const fieldModel = this.getSubModel(model, 'field', modelMap);
+    let popup: Popup | undefined;
+    if (fieldModel) {
+      const pageModel = this.getSubModel(fieldModel, 'page', modelMap);
+      if (pageModel) {
+        popup = await this.extractPopup(fieldModel, modelMap) || undefined;
+      }
+    }
+
+    // If only field name needed and no popup, return string
+    if (!displayType && !width && sortable === undefined && !fixed && !popup) {
       return fieldPath;
     }
 
@@ -364,6 +377,7 @@ export class Exporter {
     if (width) config.width = width;
     if (sortable !== undefined) config.sortable = sortable;
     if (fixed) config.fixed = fixed;
+    if (popup) config.popup = popup;
 
     return config;
   }
@@ -406,13 +420,13 @@ export class Exporter {
   /**
    * Extract row action
    */
-  private extractRowAction(model: FlowModel, modelMap: Map<string, FlowModel>): RowAction | null {
+  private async extractRowAction(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<RowAction | null> {
     if (model.use === 'DeleteActionModel') {
       return 'delete';
     }
 
     if (model.use === 'ViewActionModel' || model.use === 'EditActionModel') {
-      const popup = this.extractPopup(model, modelMap);
+      const popup = await this.extractPopup(model, modelMap);
       if (popup) {
         return {
           type: model.use === 'ViewActionModel' ? 'view' : 'edit',
@@ -427,7 +441,7 @@ export class Exporter {
   /**
    * Extract popup configuration from an action
    */
-  private extractPopup(actionModel: FlowModel, modelMap: Map<string, FlowModel>): Popup | null {
+  private async extractPopup(actionModel: FlowModel, modelMap: Map<string, FlowModel>): Promise<Popup | null> {
     // Find ChildPageModel in subModels
     const pageModel = this.getSubModel(actionModel, 'page', modelMap);
     if (!pageModel) return null;
@@ -437,7 +451,7 @@ export class Exporter {
     const tabs: Tab[] = [];
 
     for (const tabModel of tabModels) {
-      const tab = this.extractTab(tabModel, modelMap);
+      const tab = await this.extractTab(tabModel, modelMap);
       if (tab) {
         tabs.push(tab);
       }
@@ -458,7 +472,7 @@ export class Exporter {
   /**
    * Extract tab configuration
    */
-  private extractTab(tabModel: FlowModel, modelMap: Map<string, FlowModel>): Tab | null {
+  private async extractTab(tabModel: FlowModel, modelMap: Map<string, FlowModel>): Promise<Tab | null> {
     const stepParams = tabModel.stepParams as any;
     // Correct path: pageTabSettings.tab.title (not tabSettings.title.title)
     const title = stepParams?.pageTabSettings?.tab?.title || 'Tab';
@@ -472,7 +486,7 @@ export class Exporter {
     const blocks: InlineBlock[] = [];
 
     for (const blockModel of blockModels) {
-      const block = this.extractInlineBlock(blockModel, modelMap);
+      const block = await this.extractInlineBlock(blockModel, modelMap);
       if (block) {
         blocks.push(block);
       }
@@ -484,7 +498,7 @@ export class Exporter {
   /**
    * Extract inline block for popups
    */
-  private extractInlineBlock(model: FlowModel, modelMap: Map<string, FlowModel>): InlineBlock | null {
+  private async extractInlineBlock(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<InlineBlock | null> {
     switch (model.use) {
       case 'DetailsBlockModel':
         return this.extractDetailsBlockInline(model, modelMap);
@@ -493,8 +507,81 @@ export class Exporter {
         return this.extractFormBlockInline(model, modelMap);
       case 'MarkdownBlockModel':
         return this.extractMarkdownBlockInline(model);
+      case 'ReferenceBlockModel':
+        return this.extractReferenceBlock(model, modelMap);
       default:
         return null;
+    }
+  }
+
+  /**
+   * Extract ReferenceBlockModel by resolving the target template
+   * Makes a COPY of the target block's content (not a reference)
+   */
+  private async extractReferenceBlock(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<InlineBlock | null> {
+    const stepParams = model.stepParams as any;
+    const targetUid = stepParams?.referenceSettings?.target?.targetUid;
+
+    if (!targetUid) {
+      console.warn('[Exporter] ReferenceBlockModel missing targetUid:', model.uid);
+      return null;
+    }
+
+    // Try to find target in current modelMap first
+    let targetModel = modelMap.get(targetUid);
+
+    // If not found, fetch from database (target may be in a different tree/template)
+    if (!targetModel) {
+      targetModel = await this.fetchFlowModelWithSubModels(targetUid);
+      if (!targetModel) {
+        console.warn('[Exporter] ReferenceBlockModel target not found:', targetUid);
+        return null;
+      }
+
+      // Add target and its subModels to the map for extraction
+      modelMap.set(targetModel.uid, targetModel);
+      this.addSubModelsToMap(targetModel, modelMap);
+    }
+
+    // Extract the target as a regular inline block (recursively)
+    return this.extractInlineBlock(targetModel, modelMap);
+  }
+
+  /**
+   * Fetch a flowModel with its nested subModels from database
+   */
+  private async fetchFlowModelWithSubModels(uid: string): Promise<FlowModel | null> {
+    const flowModelRepo = this.db.getRepository('flowModels') as any;
+
+    // Try using the repository's toFlowModelJSON method if available
+    const modelRaw = await flowModelRepo.findOne({ filter: { uid } });
+    if (!modelRaw) return null;
+
+    // Check if repository has toFlowModelJSON (builds nested structure)
+    if (typeof flowModelRepo.toFlowModelJSON === 'function') {
+      return flowModelRepo.toFlowModelJSON(modelRaw);
+    }
+
+    // Fallback: return raw model (may not have nested subModels)
+    return modelRaw;
+  }
+
+  /**
+   * Recursively add subModels to the map for lookup
+   */
+  private addSubModelsToMap(model: FlowModel, modelMap: Map<string, FlowModel>): void {
+    if (!model.subModels) return;
+
+    for (const [_key, value] of Object.entries(model.subModels)) {
+      if (Array.isArray(value)) {
+        for (const subModel of value) {
+          modelMap.set(subModel.uid, subModel);
+          this.addSubModelsToMap(subModel, modelMap);
+        }
+      } else if (value && typeof value === 'object' && 'uid' in value) {
+        modelMap.set(value.uid, value);
+        this.addSubModelsToMap(value, modelMap);
+      }
     }
   }
 
@@ -534,7 +621,7 @@ export class Exporter {
   /**
    * Extract DetailsBlock configuration
    */
-  private extractDetailsBlock(model: FlowModel, modelMap: Map<string, FlowModel>): DetailsBlock {
+  private async extractDetailsBlock(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<DetailsBlock> {
     const collectionName = this.extractCollectionName(model) || '';
     const alias = this.getCollectionAlias(collectionName);
 
@@ -542,7 +629,7 @@ export class Exporter {
     const fields = this.extractDetailFields(model, modelMap);
 
     // Extract actions
-    const actions = this.extractBlockActions(model, modelMap);
+    const actions = await this.extractBlockActions(model, modelMap);
 
     const block: DetailsBlock = {
       type: 'details',
@@ -560,8 +647,8 @@ export class Exporter {
   /**
    * Extract details block inline (for popups)
    */
-  private extractDetailsBlockInline(model: FlowModel, modelMap: Map<string, FlowModel>): InlineBlock {
-    const block = this.extractDetailsBlock(model, modelMap);
+  private async extractDetailsBlockInline(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<InlineBlock> {
+    const block = await this.extractDetailsBlock(model, modelMap);
     return {
       type: 'details',
       collection: block.collection,
@@ -603,7 +690,7 @@ export class Exporter {
   /**
    * Extract FormBlock configuration
    */
-  private extractFormBlock(model: FlowModel, modelMap: Map<string, FlowModel>): FormBlock {
+  private async extractFormBlock(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<FormBlock> {
     const collectionName = this.extractCollectionName(model) || '';
     const alias = this.getCollectionAlias(collectionName);
 
@@ -611,7 +698,7 @@ export class Exporter {
     const fields = this.extractFormFields(model, modelMap);
 
     // Extract actions
-    const actions = this.extractBlockActions(model, modelMap);
+    const actions = await this.extractBlockActions(model, modelMap);
 
     const block: FormBlock = {
       type: 'form',
@@ -629,8 +716,8 @@ export class Exporter {
   /**
    * Extract form block inline (for popups)
    */
-  private extractFormBlockInline(model: FlowModel, modelMap: Map<string, FlowModel>): InlineBlock {
-    const block = this.extractFormBlock(model, modelMap);
+  private async extractFormBlockInline(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<InlineBlock> {
+    const block = await this.extractFormBlock(model, modelMap);
     return {
       type: 'form',
       collection: block.collection,
@@ -680,7 +767,7 @@ export class Exporter {
   /**
    * Extract block actions (edit, delete, or popup actions)
    */
-  private extractBlockActions(model: FlowModel, modelMap: Map<string, FlowModel>): BlockAction[] {
+  private async extractBlockActions(model: FlowModel, modelMap: Map<string, FlowModel>): Promise<BlockAction[]> {
     const actions: BlockAction[] = [];
     const actionModels = this.getSubModels(model, 'actions', modelMap);
 
@@ -689,7 +776,7 @@ export class Exporter {
         actions.push('delete');
       } else if (action.use === 'EditActionModel' || action.use === 'ViewActionModel') {
         // Check if action has a popup
-        const popup = this.extractPopup(action, modelMap);
+        const popup = await this.extractPopup(action, modelMap);
         if (popup) {
           actions.push({
             type: action.use === 'ViewActionModel' ? 'view' : 'edit',
@@ -710,7 +797,11 @@ export class Exporter {
    */
   private extractMarkdownBlock(model: FlowModel): MarkdownBlock {
     const stepParams = model.stepParams as any;
-    const content = stepParams?.markdownSettings?.content?.content || '';
+    // Check both possible paths for markdown content
+    const content =
+      stepParams?.markdownBlockSettings?.editMarkdown?.content ||
+      stepParams?.markdownSettings?.content?.content ||
+      '';
 
     return {
       type: 'markdown',
