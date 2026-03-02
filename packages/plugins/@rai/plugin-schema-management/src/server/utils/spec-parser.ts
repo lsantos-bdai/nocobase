@@ -47,11 +47,13 @@ export interface CollectionSchema {
   title: string;
   fields: FieldSchema[];
   inherits?: string[];
+  titleField?: string;
 }
 
 export interface ParsedSpec {
   schema: CollectionSchema;
   errors: string[];
+  rawProperties: Record<string, any>;
 }
 
 function toTitle(name: string): string {
@@ -201,16 +203,16 @@ export function parseOpenAPISpec(yamlContent: string): ParsedSpec {
   try {
     doc = yaml.load(yamlContent);
   } catch (e: any) {
-    return { schema: { title: '', fields: [] }, errors: [`Invalid YAML: ${e.message}`] };
+    return { schema: { title: '', fields: [] }, errors: [`Invalid YAML: ${e.message}`], rawProperties: {} };
   }
 
   if (!doc?.components?.schemas) {
-    return { schema: { title: '', fields: [] }, errors: ['Missing components.schemas in OpenAPI spec'] };
+    return { schema: { title: '', fields: [] }, errors: ['Missing components.schemas in OpenAPI spec'], rawProperties: {} };
   }
 
   const schemaNames = Object.keys(doc.components.schemas);
   if (schemaNames.length === 0) {
-    return { schema: { title: '', fields: [] }, errors: ['No schemas found in components.schemas'] };
+    return { schema: { title: '', fields: [] }, errors: ['No schemas found in components.schemas'], rawProperties: {} };
   }
 
   const schemaName = schemaNames[0];
@@ -221,6 +223,7 @@ export function parseOpenAPISpec(yamlContent: string): ParsedSpec {
       ? rawInherits
       : [rawInherits]
     : undefined;
+  const titleField: string | undefined = schemaObj['x-title-field'];
   const props = schemaObj.properties ?? {};
 
   // Parse required fields array
@@ -233,6 +236,7 @@ export function parseOpenAPISpec(yamlContent: string): ParsedSpec {
     return {
       schema: { title: '', fields: [] },
       errors: [`Required field(s) not found in properties: ${invalidRequiredFields.map((f) => `"${f}"`).join(', ')}`],
+      rawProperties: props,
     };
   }
 
@@ -434,7 +438,16 @@ export function parseOpenAPISpec(yamlContent: string): ParsedSpec {
     return { name, type: typeMap[prop.type] ?? 'string', ...baseProps, uiSchema: { title } };
   });
 
-  return { schema: { title: schemaName, fields, ...(inherits ? { inherits } : {}) }, errors };
+  return {
+    schema: {
+      title: schemaName,
+      fields,
+      ...(inherits && { inherits }),
+      ...(titleField && { titleField }),
+    },
+    errors,
+    rawProperties: props,
+  };
 }
 
 /**

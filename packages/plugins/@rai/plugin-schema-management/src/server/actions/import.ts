@@ -12,6 +12,22 @@ const RESERVED_FIELD_NAMES = new Set([
   'updatedById',
 ]);
 
+/**
+ * Detect system fields in the spec and return warnings
+ * System fields are auto-generated and will be ignored during import
+ */
+function detectSystemFields(props: Record<string, any>): string[] {
+  const detected: string[] = [];
+
+  for (const fieldName of RESERVED_FIELD_NAMES) {
+    if (props[fieldName]) {
+      detected.push(fieldName);
+    }
+  }
+
+  return detected;
+}
+
 interface ImportResult {
   success: boolean;
   collection?: {
@@ -42,7 +58,7 @@ export async function importSpec(ctx: Context, next: Next) {
     ctx.throw(400, 'spec parameter is required (YAML string)');
   }
 
-  const { schema, errors } = parseOpenAPISpec(spec);
+  const { schema, errors, rawProperties } = parseOpenAPISpec(spec);
 
   if (errors.length > 0) {
     ctx.body = {
@@ -55,6 +71,15 @@ export async function importSpec(ctx: Context, next: Next) {
     return await next();
   }
 
+  // Detect system fields and prepare warnings (they will be ignored)
+  const detectedSystemFields = detectSystemFields(rawProperties);
+  const systemFieldWarnings: string[] = [];
+  if (detectedSystemFields.length > 0) {
+    systemFieldWarnings.push(
+      `System fields detected and will be ignored: ${detectedSystemFields.join(', ')}. These are auto-generated.`,
+    );
+  }
+
   // Filter out reserved fields (id, createdAt, etc.) - these are auto-managed
   schema.fields = schema.fields.filter((f) => !RESERVED_FIELD_NAMES.has(f.name));
 
@@ -64,12 +89,15 @@ export async function importSpec(ctx: Context, next: Next) {
   }
 
   // Build title -> internal name map from existing collections
+  // Include both title and internal name as keys for lookup
   const titleToName = new Map<string, string>();
   const existingCollections = await ctx.db.getRepository('collections').find({
     fields: ['name', 'title'],
   });
   for (const coll of existingCollections) {
     titleToName.set(coll.title || coll.name, coll.name);
+    // Also map internal name to itself for system relations (e.g., "users" -> "users")
+    titleToName.set(coll.name, coll.name);
   }
 
   // Fail if collection already exists
@@ -101,6 +129,9 @@ export async function importSpec(ctx: Context, next: Next) {
   // Execute import within a transaction
   const result = await executeImport(ctx, schema, titleToName);
 
+  // Add system field warnings to the result
+  result.warnings = [...systemFieldWarnings, ...result.warnings];
+
   ctx.body = result;
   await next();
 }
@@ -129,9 +160,9 @@ async function executeImport(
       title: schema.title,
     };
 
-    // Use 'name' field as titleField if present
-    if (schema.fields.some((f) => f.name === 'name')) {
-      collectionPayload.titleField = 'name';
+    // Use explicit x-title-field if provided
+    if (schema.titleField) {
+      collectionPayload.titleField = schema.titleField;
     }
 
     // Handle inheritance

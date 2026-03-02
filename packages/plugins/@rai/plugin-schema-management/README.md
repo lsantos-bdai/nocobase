@@ -171,6 +171,23 @@ components:
           type: string
 ```
 
+### Title Field
+
+The `x-title-field` extension specifies which field is used as the display title for records. Defaults to `id` if not specified.
+
+```yaml
+components:
+  schemas:
+    Product:
+      type: object
+      x-title-field: name        # Use 'name' as display title instead of 'id'
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+```
+
 ---
 
 ## Required Fields & Nullability

@@ -2,6 +2,16 @@ import { Context, Next } from '@nocobase/actions';
 import * as yaml from 'js-yaml';
 import { mapFieldToOpenAPI, normalizeFieldName, FieldMapperContext } from '../utils';
 
+// System fields that are auto-generated and should not be in the required array
+const SYSTEM_FIELDS = new Set([
+  'createdAt',
+  'updatedAt',
+  'createdBy',
+  'updatedBy',
+  'createdById',
+  'updatedById',
+]);
+
 export async function generate(ctx: Context, next: Next) {
   const { collection: collectionName } = ctx.action.params;
 
@@ -59,8 +69,8 @@ export async function generate(ctx: Context, next: Next) {
       const fieldName = normalizeFieldName(field.name, fieldTitle);
       properties[fieldName] = fieldSchema;
 
-      // Add to required if primary key or not nullable
-      if (field.options?.primaryKey || field.options?.allowNull === false) {
+      // Add to required if primary key or not nullable (exclude auto-generated system fields)
+      if (!SYSTEM_FIELDS.has(field.name) && (field.options?.primaryKey || field.options?.allowNull === false)) {
         required.push(fieldName);
       }
     }
@@ -80,6 +90,9 @@ export async function generate(ctx: Context, next: Next) {
     const uniqueParents = [...new Set(parents)];
     schemaObject['x-inherits'] = uniqueParents.map((name: string) => collectionTitleMap.get(name) || name);
   }
+
+  // Always export titleField (defaults to 'id')
+  schemaObject['x-title-field'] = collection.options?.titleField || 'id';
 
   const spec = {
     openapi: '3.1.0',
