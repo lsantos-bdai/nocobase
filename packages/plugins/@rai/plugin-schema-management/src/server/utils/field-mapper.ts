@@ -5,16 +5,26 @@ interface OpenAPIPropertySchema {
   format?: string;
   description?: string;
   enum?: string[];
-  items?: { type: string };
+  items?: { type: string; enum?: string[] };
   default?: any;
   nullable?: boolean;
   readOnly?: boolean;
+  'x-belongs-to'?: string;
+  'x-has-one'?: string;
+  'x-has-many'?: string;
+  'x-belongs-to-many'?: string;
+  'x-nocobase-type'?: string;
+  'x-expression'?: string;
+}
+
+export interface FieldMapperContext {
+  collectionTitleMap: Map<string, string>; // internal name -> title
 }
 
 /**
  * Maps a NocoBase field to an OpenAPI property schema
  */
-export function mapFieldToOpenAPI(field: Field): OpenAPIPropertySchema | null {
+export function mapFieldToOpenAPI(field: Field, context?: FieldMapperContext): OpenAPIPropertySchema | null {
   const options = field.options || {};
   const fieldType = field.type;
   const fieldInterface = options.interface;
@@ -56,13 +66,12 @@ export function mapFieldToOpenAPI(field: Field): OpenAPIPropertySchema | null {
 
   if (fieldInterface === 'multipleSelect' || fieldInterface === 'checkboxGroup') {
     schema.type = 'array';
-    schema.items = { type: 'string' };
     const enumValues = uiSchema.enum || options.enum;
     if (enumValues && Array.isArray(enumValues)) {
-      const values = enumValues.map((e: any) => (typeof e === 'object' ? e.value : e)).join(', ');
-      schema.description = schema.description
-        ? `${schema.description}. Allowed values: ${values}`
-        : `Allowed values: ${values}`;
+      const values = enumValues.map((e: any) => (typeof e === 'object' ? e.value : e));
+      schema.items = { type: 'string', enum: values };
+    } else {
+      schema.items = { type: 'string' };
     }
     handleNullableAndDefault(schema, options);
     return schema;
@@ -99,8 +108,12 @@ export function mapFieldToOpenAPI(field: Field): OpenAPIPropertySchema | null {
     // String types
     case 'string':
     case 'text':
+      schema.type = 'string';
+      break;
+
     case 'uid':
       schema.type = 'string';
+      schema['x-nocobase-type'] = 'uid';
       break;
 
     case 'uuid':
@@ -168,8 +181,12 @@ export function mapFieldToOpenAPI(field: Field): OpenAPIPropertySchema | null {
 
     // JSON type
     case 'json':
+      schema.type = 'object';
+      break;
+
     case 'jsonb':
       schema.type = 'object';
+      schema['x-nocobase-type'] = 'jsonb';
       break;
 
     case 'array':
@@ -178,23 +195,41 @@ export function mapFieldToOpenAPI(field: Field): OpenAPIPropertySchema | null {
       schema.items = { type: 'string' };
       break;
 
-    // Relation types - represent as ID references
-    case 'belongsTo':
-    case 'hasOne':
-      schema.type = 'integer';
-      schema.description = schema.description
-        ? `${schema.description} (reference to ${options.target || 'related record'})`
-        : `Reference to ${options.target || 'related record'}`;
+    // Relation types - use x-* extensions with human-readable target titles
+    // Include type info so schema can validate JSON (string for single, array for many)
+    case 'belongsTo': {
+      const targetName = options.target || 'related record';
+      const targetTitle = context?.collectionTitleMap?.get(targetName) || targetName;
+      schema.type = 'string';
+      schema['x-belongs-to'] = targetTitle;
       break;
+    }
 
-    case 'hasMany':
-    case 'belongsToMany':
-      schema.type = 'array';
-      schema.items = { type: 'integer' };
-      schema.description = schema.description
-        ? `${schema.description} (references to ${options.target || 'related records'})`
-        : `References to ${options.target || 'related records'}`;
+    case 'hasOne': {
+      const targetName = options.target || 'related record';
+      const targetTitle = context?.collectionTitleMap?.get(targetName) || targetName;
+      schema.type = 'string';
+      schema['x-has-one'] = targetTitle;
       break;
+    }
+
+    case 'hasMany': {
+      const targetName = options.target || 'related records';
+      const targetTitle = context?.collectionTitleMap?.get(targetName) || targetName;
+      schema.type = 'array';
+      schema.items = { type: 'string' };
+      schema['x-has-many'] = targetTitle;
+      break;
+    }
+
+    case 'belongsToMany': {
+      const targetName = options.target || 'related records';
+      const targetTitle = context?.collectionTitleMap?.get(targetName) || targetName;
+      schema.type = 'array';
+      schema.items = { type: 'string' };
+      schema['x-belongs-to-many'] = targetTitle;
+      break;
+    }
 
     // Rich text / markdown
     case 'richText':
@@ -254,27 +289,17 @@ export function mapFieldToOpenAPI(field: Field): OpenAPIPropertySchema | null {
     // Sort field
     case 'sort':
       schema.type = 'integer';
-      schema.format = 'int64';
-      schema.readOnly = true;
+      schema['x-nocobase-type'] = 'sort';
       break;
 
     // Formula (computed field)
-    case 'formula':
-      const formulaDataType = options.dataType;
-      if (formulaDataType === 'boolean') {
-        schema.type = 'boolean';
-      } else if (formulaDataType === 'integer' || formulaDataType === 'bigInt') {
-        schema.type = 'integer';
-      } else if (formulaDataType === 'double' || formulaDataType === 'decimal') {
-        schema.type = 'number';
-      } else {
-        schema.type = 'string';
+    case 'formula': {
+      schema['x-nocobase-type'] = 'formula';
+      if (options.expression) {
+        schema['x-expression'] = options.expression;
       }
-      schema.readOnly = true;
-      schema.description = schema.description
-        ? `${schema.description} (computed)`
-        : 'Computed formula field';
       break;
+    }
 
     // Geographic types
     case 'circle':
@@ -298,7 +323,7 @@ export function mapFieldToOpenAPI(field: Field): OpenAPIPropertySchema | null {
     // Context fields (createdBy, updatedBy)
     case 'context':
     case 'createdBy':
-    case 'updatedBy':
+    case 'updatedBy': {
       const contextDataType = options.dataType;
       if (contextDataType === 'integer' || contextDataType === 'bigint') {
         schema.type = 'integer';
@@ -309,6 +334,12 @@ export function mapFieldToOpenAPI(field: Field): OpenAPIPropertySchema | null {
       schema.description = schema.description
         ? `${schema.description} (user ID)`
         : 'User ID';
+      break;
+    }
+
+    // Virtual field
+    case 'virtual':
+      schema['x-nocobase-type'] = 'virtual';
       break;
 
     // Default fallback

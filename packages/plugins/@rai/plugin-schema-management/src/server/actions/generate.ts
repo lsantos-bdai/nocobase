@@ -1,6 +1,6 @@
 import { Context, Next } from '@nocobase/actions';
 import * as yaml from 'js-yaml';
-import { mapFieldToOpenAPI, normalizeFieldName } from '../utils';
+import { mapFieldToOpenAPI, normalizeFieldName, FieldMapperContext } from '../utils';
 
 export async function generate(ctx: Context, next: Next) {
   const { collection: collectionName } = ctx.action.params;
@@ -35,13 +35,24 @@ export async function generate(ctx: Context, next: Next) {
   }
   const title = collMeta?.title || collectionName;
 
+  // Build collection title map for resolving relation targets to human-readable names
+  const allCollections = await ctx.db.getRepository('collections').find({
+    fields: ['name', 'title'],
+  });
+  const collectionTitleMap = new Map<string, string>();
+  for (const coll of allCollections) {
+    collectionTitleMap.set(coll.name, coll.title || coll.name);
+  }
+
+  const mapperContext: FieldMapperContext = { collectionTitleMap };
+
   // Build OpenAPI schema from fields
   const fields = collection.getFields();
   const properties: Record<string, any> = {};
   const required: string[] = [];
 
   for (const field of fields) {
-    const fieldSchema = mapFieldToOpenAPI(field);
+    const fieldSchema = mapFieldToOpenAPI(field, mapperContext);
     if (fieldSchema) {
       // Get title from uiSchema or options
       const fieldTitle = field.options?.uiSchema?.title || field.options?.title;
@@ -55,19 +66,29 @@ export async function generate(ctx: Context, next: Next) {
     }
   }
 
+  // Build schema object with optional x-inherits
+  const schemaObject: Record<string, any> = {
+    type: 'object',
+    properties,
+    ...(required.length > 0 && { required }),
+  };
+
+  // Handle inheritance
+  const inherits = collection.options?.inherits;
+  if (inherits) {
+    const parents = Array.isArray(inherits) ? inherits : [inherits];
+    schemaObject['x-inherits'] = parents.map((name: string) => collectionTitleMap.get(name) || name);
+  }
+
   const spec = {
-    openapi: '3.0.3',
+    openapi: '3.1.0',
     info: {
       title,
       version: '1.0.0',
     },
     components: {
       schemas: {
-        [title]: {
-          type: 'object',
-          properties,
-          ...(required.length > 0 && { required }),
-        },
+        [title]: schemaObject,
       },
     },
   };
