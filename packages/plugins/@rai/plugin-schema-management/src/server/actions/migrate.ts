@@ -305,6 +305,18 @@ export async function migrate(ctx: Context, next: Next) {
         }
       }
 
+      // Update collection title if changed
+      const titleChange = [...changes.nonBreaking, ...changes.breaking].find(
+        (c) => c.type === 'change_collection_title'
+      );
+      if (titleChange && titleChange.details?.newValue) {
+        await ctx.db.getRepository('collections').update({
+          filter: { name: resolvedName },
+          values: { title: titleChange.details.newValue },
+          transaction,
+        });
+      }
+
       // Update collection metadata if titleField changed
       const titleFieldChange = changes.nonBreaking.find((c) => c.type === 'change_metadata' && c.field === 'titleField');
       if (titleFieldChange && titleFieldChange.details?.newValue) {

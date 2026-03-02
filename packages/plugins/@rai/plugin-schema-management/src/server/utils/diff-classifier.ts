@@ -1,10 +1,22 @@
+// System fields that should be ignored in diff comparisons
+const SYSTEM_FIELDS = new Set([
+  'createdAt',
+  'updatedAt',
+  'createdBy',
+  'updatedBy',
+  'createdById',
+  'updatedById',
+  'id',
+]);
+
 /**
  * Classification of a schema change
  */
 export interface ClassifiedChange {
   type: 'add_field' | 'remove_field' | 'modify_field' | 'change_type' | 'change_relation' |
         'make_required' | 'make_optional' | 'add_enum' | 'remove_enum' |
-        'change_validation' | 'add_unique' | 'remove_unique' | 'change_metadata';
+        'change_validation' | 'add_unique' | 'remove_unique' | 'change_metadata' |
+        'change_collection_title';
   field: string;
   description: string;
   details?: Record<string, unknown>;
@@ -41,6 +53,16 @@ export function diffSchemas(currentSpec: any, newSpec: any): ClassifiedChanges {
 
   if (!currentSchemaName || !newSchemaName) {
     return changes;
+  }
+
+  // Detect collection title rename
+  if (currentSchemaName !== newSchemaName) {
+    changes.nonBreaking.push({
+      type: 'change_collection_title',
+      field: 'title',
+      description: `Rename collection from "${currentSchemaName}" to "${newSchemaName}"`,
+      details: { oldValue: currentSchemaName, newValue: newSchemaName },
+    });
   }
 
   const currentSchema = currentSchemas[currentSchemaName];
@@ -82,9 +104,9 @@ export function diffSchemas(currentSpec: any, newSpec: any): ClassifiedChanges {
     }
   }
 
-  // Detect required array changes
+  // Detect required array changes (skip system fields)
   for (const field of newRequired) {
-    if (!currentRequired.has(field)) {
+    if (!currentRequired.has(field) && !SYSTEM_FIELDS.has(field)) {
       changes.breaking.push({
         type: 'make_required',
         field,
@@ -94,7 +116,7 @@ export function diffSchemas(currentSpec: any, newSpec: any): ClassifiedChanges {
   }
 
   for (const field of currentRequired) {
-    if (!newRequired.has(field)) {
+    if (!newRequired.has(field) && !SYSTEM_FIELDS.has(field)) {
       changes.nonBreaking.push({
         type: 'make_optional',
         field,
