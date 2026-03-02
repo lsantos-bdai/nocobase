@@ -73,11 +73,12 @@ export async function generate(ctx: Context, next: Next) {
     ...(required.length > 0 && { required }),
   };
 
-  // Handle inheritance
+  // Handle inheritance (dedupe due to deepmerge concatenation in NocoBase core)
   const inherits = collection.options?.inherits;
   if (inherits) {
     const parents = Array.isArray(inherits) ? inherits : [inherits];
-    schemaObject['x-inherits'] = parents.map((name: string) => collectionTitleMap.get(name) || name);
+    const uniqueParents = [...new Set(parents)];
+    schemaObject['x-inherits'] = uniqueParents.map((name: string) => collectionTitleMap.get(name) || name);
   }
 
   const spec = {
