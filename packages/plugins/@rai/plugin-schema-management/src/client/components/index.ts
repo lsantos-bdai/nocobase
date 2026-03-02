@@ -2,3 +2,8 @@ export { SchemaExplorer } from './SchemaExplorer';
 export { CollectionSelector } from './CollectionSelector';
 export { SchemaViewer } from './SchemaViewer';
 export { SchemaImporter } from './SchemaImporter';
+export { SchemaMigrator } from './SchemaMigrator';
+export { DiffPreview } from './DiffPreview';
+export { MigrationResult } from './MigrationResult';
+export { SchemaTab } from './SchemaTab';
+export { DataTab } from './DataTab';

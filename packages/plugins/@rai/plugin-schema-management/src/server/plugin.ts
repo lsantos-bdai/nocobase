@@ -1,5 +1,5 @@
 import { Plugin } from '@nocobase/server';
-import { listCollections, generate, importSpec } from './actions';
+import { listCollections, generate, importSpec, diff, migrate, exportData, exportDataGet, importData } from './actions';
 
 export class PluginSchemaManagementServer extends Plugin {
   async afterAdd() {}
@@ -14,6 +14,11 @@ export class PluginSchemaManagementServer extends Plugin {
         listCollections,
         generate,
         import: importSpec,
+        diff,
+        migrate,
+        export: exportData,
+        exportGet: exportDataGet,
+        importData,
       },
     });
 
@@ -24,11 +29,16 @@ export class PluginSchemaManagementServer extends Plugin {
         'schema-management:listCollections',
         'schema-management:generate',
         'schema-management:import',
+        'schema-management:diff',
+        'schema-management:migrate',
+        'schema-management:export',
+        'schema-management:exportGet',
+        'schema-management:importData',
       ],
     });
 
     // Allow logged-in users with pm.schema-management snippet to use these actions
-    this.app.acl.allow('schema-management', ['listCollections', 'generate', 'import'], 'loggedIn');
+    this.app.acl.allow('schema-management', ['listCollections', 'generate', 'import', 'diff', 'migrate', 'export', 'exportGet', 'importData'], 'loggedIn');
   }
 
   async install() {}

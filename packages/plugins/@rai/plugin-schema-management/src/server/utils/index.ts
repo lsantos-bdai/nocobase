@@ -8,3 +8,16 @@ export {
   type SelectOption,
   type ParsedSpec,
 } from './spec-parser';
+export {
+  classifyChanges,
+  canAutoApply,
+  type ClassifiedChange,
+  type ClassifiedChanges,
+  type OpenAPIDiffResult,
+} from './diff-classifier';
+export {
+  validateMigration,
+  validateRemoveEnumValues,
+  type ValidationWarning,
+  type ValidationResult,
+} from './data-validator';

@@ -3,7 +3,8 @@
   "version": "2.0.1",
   "main": "dist/server/index.js",
   "dependencies": {
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "openapi-diff": "^0.24.1"
   },
   "peerDependencies": {
     "@nocobase/client": "2.x",
