@@ -1,8 +1,7 @@
 import { Context, Next } from '@nocobase/actions';
 import * as yaml from 'js-yaml';
-import { diffSpecs } from 'openapi-diff';
 import {
-  classifyChanges,
+  diffSchemas,
   canAutoApply,
   validateMigration,
   mapFieldToOpenAPI,
@@ -173,26 +172,12 @@ export async function diff(ctx: Context, next: Next) {
     // Generate current spec
     const currentSpecYaml = await generateCurrentSpec(ctx, resolvedName);
 
-    // Parse both specs to JSON for openapi-diff
+    // Parse both specs to JSON for comparison
     const currentSpec = yaml.load(currentSpecYaml) as any;
     const newSpec = yaml.load(newSpecYaml) as any;
 
-    // Run openapi-diff
-    const diffResult = await diffSpecs({
-      sourceSpec: {
-        content: JSON.stringify(currentSpec),
-        location: 'current',
-        format: 'openapi3',
-      },
-      destinationSpec: {
-        content: JSON.stringify(newSpec),
-        location: 'new',
-        format: 'openapi3',
-      },
-    });
-
-    // Classify changes with NocoBase semantics
-    const changes = classifyChanges(diffResult, ctx);
+    // Use custom schema diff that properly detects x-* additions and required changes
+    const changes = diffSchemas(currentSpec, newSpec);
 
     // Validate breaking changes against actual data
     const validationResult = await validateMigration(ctx, resolvedName, changes);

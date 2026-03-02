@@ -9,11 +9,10 @@ export {
   type ParsedSpec,
 } from './spec-parser';
 export {
-  classifyChanges,
   canAutoApply,
+  diffSchemas,
   type ClassifiedChange,
   type ClassifiedChanges,
-  type OpenAPIDiffResult,
 } from './diff-classifier';
 export {
   validateMigration,

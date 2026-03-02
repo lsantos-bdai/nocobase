@@ -62,7 +62,7 @@ export default {
         tags: ['schema-management'],
         summary: 'Generate OpenAPI schema for a collection',
         description:
-          "Generates an OpenAPI 3.0.3 specification in YAML format containing the schema definition for a collection's fields. Field names are normalized from their titles to snake_case. The schema includes type mappings for all supported NocoBase field types.",
+          "Generates an OpenAPI 3.1.0 specification in YAML format containing the schema definition for a collection's fields. Field names are normalized from their titles to snake_case. The schema includes type mappings for all supported NocoBase field types.",
         parameters: [
           {
             name: 'collection',
@@ -75,13 +75,13 @@ export default {
         ],
         responses: {
           200: {
-            description: 'OpenAPI 3.0.3 YAML specification. Use curl to download: `curl "http://localhost:13000/api/schema-management:generate?collection=ArmStation" > ArmStation.yaml`',
+            description: 'OpenAPI 3.1.0 YAML specification. Use curl to download: `curl "http://localhost:13000/api/schema-management:generate?collection=ArmStation" > ArmStation.yaml`',
             content: {
               'text/yaml': {
                 schema: {
                   type: 'string',
                 },
-                example: `openapi: '3.0.3'
+                example: `openapi: '3.1.0'
 info:
   title: Arm Station
   version: 1.0.0

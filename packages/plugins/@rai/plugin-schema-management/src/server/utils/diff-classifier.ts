@@ -1,5 +1,3 @@
-import type { Context } from '@nocobase/actions';
-
 /**
  * Classification of a schema change
  */
@@ -22,378 +20,249 @@ export interface ClassifiedChanges {
 }
 
 /**
- * Raw diff from openapi-diff library
- */
-export interface OpenAPIDiffResult {
-  breakingDifferences: DiffEntry[];
-  nonBreakingDifferences: DiffEntry[];
-  unclassifiedDifferences: DiffEntry[];
-}
-
-interface DiffEntry {
-  code: string;
-  type?: string;
-  action?: string;
-  sourceSpecEntityDetails?: EntityDetails[];
-  destinationSpecEntityDetails?: EntityDetails[];
-  entity?: string;
-  source?: string;
-  details?: any;
-}
-
-interface EntityDetails {
-  location: string;
-  value?: any;
-}
-
-/**
- * Extract field name from a JSON pointer path like
- * "/components/schemas/MyCollection/properties/fieldName"
- */
-function extractFieldName(location: string): string | null {
-  const match = location.match(/\/properties\/([^/]+)/);
-  return match ? match[1] : null;
-}
-
-/**
- * Check if a diff entry relates to x-* extension properties
- */
-function isExtensionChange(entry: DiffEntry): boolean {
-  const location = entry.sourceSpecEntityDetails?.[0]?.location ||
-                   entry.destinationSpecEntityDetails?.[0]?.location || '';
-  return location.includes('/x-') || entry.entity?.startsWith('x-') || false;
-}
-
-/**
- * Classify openapi-diff results into NocoBase-specific categories
- *
- * The openapi-diff library provides:
- * - breakingDifferences: Changes that break backwards compatibility (removed paths, added required props)
- * - nonBreakingDifferences: Safe changes (added optional props)
- * - unclassifiedDifferences: Changes it doesn't know how to classify (x-* extensions)
- *
- * We reclassify based on NocoBase semantics:
- * - x-unique changes, x-belongs-to, x-inherits, etc.
- */
-export function classifyChanges(diffResult: OpenAPIDiffResult, ctx?: Context): ClassifiedChanges {
-  const result: ClassifiedChanges = {
-    nonBreaking: [],
-    breaking: [],
-    unclassified: [],
-  };
-
-  // Process openapi-diff's breaking differences
-  for (const diff of diffResult.breakingDifferences || []) {
-    const classified = classifySingleDiff(diff, 'breaking');
-    if (classified) {
-      result[classified.category].push(classified.change);
-    }
-  }
-
-  // Process openapi-diff's non-breaking differences
-  for (const diff of diffResult.nonBreakingDifferences || []) {
-    const classified = classifySingleDiff(diff, 'non-breaking');
-    if (classified) {
-      result[classified.category].push(classified.change);
-    }
-  }
-
-  // Process openapi-diff's unclassified differences (mostly x-* extensions)
-  for (const diff of diffResult.unclassifiedDifferences || []) {
-    const classified = classifyExtensionDiff(diff);
-    if (classified) {
-      result[classified.category].push(classified.change);
-    }
-  }
-
-  return result;
-}
-
-/**
- * Classify a single diff entry from openapi-diff
- */
-function classifySingleDiff(
-  diff: DiffEntry,
-  originalCategory: 'breaking' | 'non-breaking'
-): { category: 'nonBreaking' | 'breaking' | 'unclassified'; change: ClassifiedChange } | null {
-  const location = diff.sourceSpecEntityDetails?.[0]?.location ||
-                   diff.destinationSpecEntityDetails?.[0]?.location || '';
-  const field = extractFieldName(location);
-
-  // Handle property added
-  if (diff.code === 'request.body.scope.add' ||
-      diff.code === 'response.body.scope.add' ||
-      diff.action === 'add') {
-    if (field) {
-      return {
-        category: 'nonBreaking',
-        change: {
-          type: 'add_field',
-          field,
-          description: `Add new field "${field}"`,
-          details: { value: diff.destinationSpecEntityDetails?.[0]?.value },
-        },
-      };
-    }
-  }
-
-  // Handle property removed
-  if (diff.code === 'request.body.scope.remove' ||
-      diff.code === 'response.body.scope.remove' ||
-      diff.action === 'remove') {
-    if (field) {
-      return {
-        category: 'breaking',
-        change: {
-          type: 'remove_field',
-          field,
-          description: `Remove field "${field}"`,
-          details: { value: diff.sourceSpecEntityDetails?.[0]?.value },
-        },
-      };
-    }
-  }
-
-  // Handle required array changes
-  if (diff.code?.includes('required') || location.includes('/required')) {
-    if (diff.action === 'add' || diff.code?.includes('.add')) {
-      // Added to required array = making field required (BREAKING if NULLs exist)
-      const requiredField = diff.destinationSpecEntityDetails?.[0]?.value || field;
-      return {
-        category: 'breaking',
-        change: {
-          type: 'make_required',
-          field: requiredField,
-          description: `Make field "${requiredField}" required`,
-        },
-      };
-    } else if (diff.action === 'remove' || diff.code?.includes('.remove')) {
-      // Removed from required array = making field optional (non-breaking)
-      const optionalField = diff.sourceSpecEntityDetails?.[0]?.value || field;
-      return {
-        category: 'nonBreaking',
-        change: {
-          type: 'make_optional',
-          field: optionalField,
-          description: `Make field "${optionalField}" optional`,
-        },
-      };
-    }
-  }
-
-  // Handle type changes
-  if (diff.code?.includes('type') && diff.action === 'change') {
-    const oldValue = diff.sourceSpecEntityDetails?.[0]?.value;
-    const newValue = diff.destinationSpecEntityDetails?.[0]?.value;
-    return {
-      category: 'breaking',
-      change: {
-        type: 'change_type',
-        field: field || 'unknown',
-        description: `Change type from "${oldValue}" to "${newValue}"`,
-        details: { oldValue, newValue },
-      },
-    };
-  }
-
-  // Handle enum changes
-  if (diff.code?.includes('enum') || location.includes('/enum')) {
-    if (diff.action === 'add' || diff.code?.includes('.add')) {
-      const addedValue = diff.destinationSpecEntityDetails?.[0]?.value;
-      return {
-        category: 'nonBreaking',
-        change: {
-          type: 'add_enum',
-          field: field || 'unknown',
-          description: `Add enum option "${addedValue}"`,
-          details: { addedValue },
-        },
-      };
-    } else if (diff.action === 'remove' || diff.code?.includes('.remove')) {
-      const removedValue = diff.sourceSpecEntityDetails?.[0]?.value;
-      return {
-        category: 'breaking',
-        change: {
-          type: 'remove_enum',
-          field: field || 'unknown',
-          description: `Remove enum option "${removedValue}"`,
-          details: { removedValue },
-        },
-      };
-    }
-  }
-
-  // Handle validation constraint changes (minLength, maxLength, pattern, etc.)
-  // These are non-breaking since NocoBase uses JOI validation, not Postgres constraints
-  if (diff.code?.includes('minLength') || diff.code?.includes('maxLength') ||
-      diff.code?.includes('pattern') || diff.code?.includes('minimum') ||
-      diff.code?.includes('maximum') || diff.code?.includes('minItems') ||
-      diff.code?.includes('maxItems')) {
-    const oldValue = diff.sourceSpecEntityDetails?.[0]?.value;
-    const newValue = diff.destinationSpecEntityDetails?.[0]?.value;
-    return {
-      category: 'nonBreaking',
-      change: {
-        type: 'change_validation',
-        field: field || 'unknown',
-        description: `Change validation constraint`,
-        details: { oldValue, newValue },
-      },
-    };
-  }
-
-  // If we couldn't classify it specifically, preserve original category
-  if (field) {
-    return {
-      category: originalCategory === 'breaking' ? 'breaking' : 'nonBreaking',
-      change: {
-        type: 'modify_field',
-        field,
-        description: diff.code || 'Unknown modification',
-        details: { code: diff.code, action: diff.action },
-      },
-    };
-  }
-
-  return null;
-}
-
-/**
- * Classify x-* extension changes that openapi-diff marks as unclassified
- */
-function classifyExtensionDiff(
-  diff: DiffEntry
-): { category: 'nonBreaking' | 'breaking' | 'unclassified'; change: ClassifiedChange } | null {
-  const location = diff.sourceSpecEntityDetails?.[0]?.location ||
-                   diff.destinationSpecEntityDetails?.[0]?.location || '';
-  const field = extractFieldName(location);
-
-  // x-unique changes
-  if (location.includes('/x-unique')) {
-    const oldValue = diff.sourceSpecEntityDetails?.[0]?.value;
-    const newValue = diff.destinationSpecEntityDetails?.[0]?.value;
-
-    if (oldValue === false && newValue === true) {
-      // Adding unique constraint = BREAKING (need to check for duplicates)
-      return {
-        category: 'breaking',
-        change: {
-          type: 'add_unique',
-          field: field || 'unknown',
-          description: `Add unique constraint to "${field}"`,
-        },
-      };
-    } else if (oldValue === true && newValue === false) {
-      // Removing unique constraint = non-breaking
-      return {
-        category: 'nonBreaking',
-        change: {
-          type: 'remove_unique',
-          field: field || 'unknown',
-          description: `Remove unique constraint from "${field}"`,
-        },
-      };
-    }
-  }
-
-  // x-belongs-to, x-has-one, x-has-many, x-belongs-to-many changes
-  if (location.includes('/x-belongs-to') || location.includes('/x-has-one') ||
-      location.includes('/x-has-many') || location.includes('/x-belongs-to-many')) {
-    const oldValue = diff.sourceSpecEntityDetails?.[0]?.value;
-    const newValue = diff.destinationSpecEntityDetails?.[0]?.value;
-    return {
-      category: 'breaking',
-      change: {
-        type: 'change_relation',
-        field: field || 'unknown',
-        description: `Change relation target from "${oldValue}" to "${newValue}"`,
-        details: { oldValue, newValue },
-      },
-    };
-  }
-
-  // x-inherits changes
-  if (location.includes('/x-inherits')) {
-    return {
-      category: 'breaking',
-      change: {
-        type: 'change_relation',
-        field: 'inheritance',
-        description: 'Change collection inheritance',
-        details: {
-          oldValue: diff.sourceSpecEntityDetails?.[0]?.value,
-          newValue: diff.destinationSpecEntityDetails?.[0]?.value,
-        },
-      },
-    };
-  }
-
-  // x-nocobase-type changes
-  if (location.includes('/x-nocobase-type')) {
-    const oldValue = diff.sourceSpecEntityDetails?.[0]?.value;
-    const newValue = diff.destinationSpecEntityDetails?.[0]?.value;
-    return {
-      category: 'breaking',
-      change: {
-        type: 'change_type',
-        field: field || 'unknown',
-        description: `Change NocoBase type from "${oldValue}" to "${newValue}"`,
-        details: { oldValue, newValue },
-      },
-    };
-  }
-
-  // x-title-field changes (metadata only, non-breaking)
-  if (location.includes('/x-title-field')) {
-    return {
-      category: 'nonBreaking',
-      change: {
-        type: 'change_metadata',
-        field: 'titleField',
-        description: 'Change title field',
-        details: {
-          oldValue: diff.sourceSpecEntityDetails?.[0]?.value,
-          newValue: diff.destinationSpecEntityDetails?.[0]?.value,
-        },
-      },
-    };
-  }
-
-  // x-expression changes (formula fields)
-  if (location.includes('/x-expression')) {
-    return {
-      category: 'nonBreaking',
-      change: {
-        type: 'change_validation',
-        field: field || 'unknown',
-        description: 'Change formula expression',
-        details: {
-          oldValue: diff.sourceSpecEntityDetails?.[0]?.value,
-          newValue: diff.destinationSpecEntityDetails?.[0]?.value,
-        },
-      },
-    };
-  }
-
-  // Default: mark as unclassified
-  if (field) {
-    return {
-      category: 'unclassified',
-      change: {
-        type: 'modify_field',
-        field,
-        description: `Unknown extension change: ${location}`,
-        details: { location },
-      },
-    };
-  }
-
-  return null;
-}
-
-/**
  * Determine if a set of changes can be auto-applied (no breaking changes)
  */
 export function canAutoApply(changes: ClassifiedChanges): boolean {
   return changes.breaking.length === 0;
+}
+
+/**
+ * Custom schema diff that directly compares OpenAPI components/schemas.
+ */
+export function diffSchemas(currentSpec: any, newSpec: any): ClassifiedChanges {
+  const changes: ClassifiedChanges = { nonBreaking: [], breaking: [], unclassified: [] };
+
+  const currentSchemas = currentSpec?.components?.schemas || {};
+  const newSchemas = newSpec?.components?.schemas || {};
+
+  // Get the first (and typically only) schema from each spec
+  const currentSchemaName = Object.keys(currentSchemas)[0];
+  const newSchemaName = Object.keys(newSchemas)[0];
+
+  if (!currentSchemaName || !newSchemaName) {
+    return changes;
+  }
+
+  const currentSchema = currentSchemas[currentSchemaName];
+  const newSchema = newSchemas[newSchemaName];
+
+  const currentProps = currentSchema?.properties || {};
+  const newProps = newSchema?.properties || {};
+  const currentRequired = new Set<string>(currentSchema?.required || []);
+  const newRequired = new Set<string>(newSchema?.required || []);
+
+  // Detect property additions
+  for (const field of Object.keys(newProps)) {
+    if (!(field in currentProps)) {
+      changes.nonBreaking.push({
+        type: 'add_field',
+        field,
+        description: `Add new field "${field}"`,
+        details: { value: newProps[field] },
+      });
+    }
+  }
+
+  // Detect property removals
+  for (const field of Object.keys(currentProps)) {
+    if (!(field in newProps)) {
+      changes.breaking.push({
+        type: 'remove_field',
+        field,
+        description: `Remove field "${field}"`,
+        details: { value: currentProps[field] },
+      });
+    }
+  }
+
+  // Detect property modifications (type, x-unique, enum, etc.)
+  for (const field of Object.keys(newProps)) {
+    if (field in currentProps) {
+      diffProperty(field, currentProps[field], newProps[field], changes);
+    }
+  }
+
+  // Detect required array changes
+  for (const field of newRequired) {
+    if (!currentRequired.has(field)) {
+      changes.breaking.push({
+        type: 'make_required',
+        field,
+        description: `Make field "${field}" required`,
+      });
+    }
+  }
+
+  for (const field of currentRequired) {
+    if (!newRequired.has(field)) {
+      changes.nonBreaking.push({
+        type: 'make_optional',
+        field,
+        description: `Make field "${field}" optional`,
+      });
+    }
+  }
+
+  // Detect schema-level x-* changes
+  diffSchemaExtensions(currentSchema, newSchema, changes);
+
+  return changes;
+}
+
+/**
+ * Compare two property definitions and detect changes
+ */
+function diffProperty(
+  field: string,
+  currentProp: any,
+  newProp: any,
+  changes: ClassifiedChanges
+): void {
+  // Type changes
+  if (currentProp.type !== newProp.type) {
+    changes.breaking.push({
+      type: 'change_type',
+      field,
+      description: `Change type from "${currentProp.type}" to "${newProp.type}"`,
+      details: { oldValue: currentProp.type, newValue: newProp.type },
+    });
+  }
+
+  // x-unique changes
+  const currentUnique = currentProp['x-unique'];
+  const newUnique = newProp['x-unique'];
+  if (currentUnique !== newUnique) {
+    if (newUnique === true && (currentUnique === undefined || currentUnique === false)) {
+      // Adding unique constraint = BREAKING (need to check for duplicates)
+      changes.breaking.push({
+        type: 'add_unique',
+        field,
+        description: `Add unique constraint to "${field}"`,
+      });
+    } else if ((newUnique === undefined || newUnique === false) && currentUnique === true) {
+      // Removing unique constraint = non-breaking
+      changes.nonBreaking.push({
+        type: 'remove_unique',
+        field,
+        description: `Remove unique constraint from "${field}"`,
+      });
+    }
+  }
+
+  // x-nocobase-type changes
+  const currentNcType = currentProp['x-nocobase-type'];
+  const newNcType = newProp['x-nocobase-type'];
+  if (currentNcType !== newNcType && currentNcType !== undefined && newNcType !== undefined) {
+    changes.breaking.push({
+      type: 'change_type',
+      field,
+      description: `Change NocoBase type from "${currentNcType}" to "${newNcType}"`,
+      details: { oldValue: currentNcType, newValue: newNcType },
+    });
+  }
+
+  // Enum changes
+  const currentEnum = currentProp.enum;
+  const newEnum = newProp.enum;
+  if (currentEnum || newEnum) {
+    const currentSet = new Set(currentEnum || []);
+    const newSet = new Set(newEnum || []);
+
+    // Added enum values (non-breaking)
+    for (const val of newSet) {
+      if (!currentSet.has(val)) {
+        changes.nonBreaking.push({
+          type: 'add_enum',
+          field,
+          description: `Add enum option "${val}"`,
+          details: { addedValue: val },
+        });
+      }
+    }
+
+    // Removed enum values (breaking)
+    for (const val of currentSet) {
+      if (!newSet.has(val)) {
+        changes.breaking.push({
+          type: 'remove_enum',
+          field,
+          description: `Remove enum option "${val}"`,
+          details: { removedValue: val },
+        });
+      }
+    }
+  }
+
+  // Relation target changes (x-belongs-to, x-has-one, x-has-many, x-belongs-to-many)
+  for (const relationKey of ['x-belongs-to', 'x-has-one', 'x-has-many', 'x-belongs-to-many']) {
+    const currentRelation = currentProp[relationKey];
+    const newRelation = newProp[relationKey];
+    if (currentRelation !== newRelation && (currentRelation || newRelation)) {
+      changes.breaking.push({
+        type: 'change_relation',
+        field,
+        description: `Change relation target from "${currentRelation}" to "${newRelation}"`,
+        details: { oldValue: currentRelation, newValue: newRelation },
+      });
+    }
+  }
+
+  // Validation constraint changes (non-breaking since NocoBase uses JOI, not Postgres constraints)
+  for (const validationKey of ['minLength', 'maxLength', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems']) {
+    const currentVal = currentProp[validationKey];
+    const newVal = newProp[validationKey];
+    if (currentVal !== newVal && (currentVal !== undefined || newVal !== undefined)) {
+      changes.nonBreaking.push({
+        type: 'change_validation',
+        field,
+        description: `Change ${validationKey} from "${currentVal}" to "${newVal}"`,
+        details: { oldValue: currentVal, newValue: newVal },
+      });
+    }
+  }
+
+  // x-expression changes (formula fields)
+  const currentExpr = currentProp['x-expression'];
+  const newExpr = newProp['x-expression'];
+  if (currentExpr !== newExpr && (currentExpr || newExpr)) {
+    changes.nonBreaking.push({
+      type: 'change_validation',
+      field,
+      description: 'Change formula expression',
+      details: { oldValue: currentExpr, newValue: newExpr },
+    });
+  }
+}
+
+/**
+ * Compare schema-level extensions (x-inherits, x-title-field, etc.)
+ */
+function diffSchemaExtensions(
+  currentSchema: any,
+  newSchema: any,
+  changes: ClassifiedChanges
+): void {
+  // x-inherits changes
+  const currentInherits = currentSchema?.['x-inherits'];
+  const newInherits = newSchema?.['x-inherits'];
+  if (JSON.stringify(currentInherits) !== JSON.stringify(newInherits)) {
+    changes.breaking.push({
+      type: 'change_relation',
+      field: 'inheritance',
+      description: 'Change collection inheritance',
+      details: { oldValue: currentInherits, newValue: newInherits },
+    });
+  }
+
+  // x-title-field changes (metadata only, non-breaking)
+  const currentTitleField = currentSchema?.['x-title-field'];
+  const newTitleField = newSchema?.['x-title-field'];
+  if (currentTitleField !== newTitleField) {
+    changes.nonBreaking.push({
+      type: 'change_metadata',
+      field: 'titleField',
+      description: 'Change title field',
+      details: { oldValue: currentTitleField, newValue: newTitleField },
+    });
+  }
 }

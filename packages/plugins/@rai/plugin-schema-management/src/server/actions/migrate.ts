@@ -1,8 +1,7 @@
 import { Context, Next } from '@nocobase/actions';
 import * as yaml from 'js-yaml';
-import { diffSpecs } from 'openapi-diff';
 import {
-  classifyChanges,
+  diffSchemas,
   canAutoApply,
   validateMigration,
   parseOpenAPISpec,
@@ -27,7 +26,7 @@ const SYSTEM_FIELDS = new Set([
 interface MigrateRequest {
   collection: string;
   spec: string;
-  force?: boolean;
+  data?: string; // JSONL data for breaking change migrations
 }
 
 interface MigrateResponse {
@@ -37,6 +36,17 @@ interface MigrateResponse {
   fieldsSkipped: string[];
   errors: string[];
   warnings: string[];
+  // Data import stats (when data is provided)
+  dataImport?: {
+    recordsImported: number;
+    recordsUpdated: number;
+  };
+}
+
+interface DataValidationResult {
+  valid: boolean;
+  errors: string[];
+  records: Record<string, unknown>[];
 }
 
 /**
@@ -132,7 +142,7 @@ async function generateCurrentSpec(ctx: Context, collectionName: string): Promis
  */
 export async function migrate(ctx: Context, next: Next) {
   const body = (ctx.request.body || ctx.action.params.values || {}) as MigrateRequest;
-  const { collection: collectionName, spec: newSpecYaml, force = false } = body;
+  const { collection: collectionName, spec: newSpecYaml, data: jsonlData } = body;
 
   if (!collectionName) {
     ctx.throw(400, 'collection parameter is required');
@@ -176,21 +186,18 @@ export async function migrate(ctx: Context, next: Next) {
     const currentSpec = yaml.load(currentSpecYaml) as any;
     const newSpec = yaml.load(newSpecYaml) as any;
 
-    const diffResult = await diffSpecs({
-      sourceSpec: { content: JSON.stringify(currentSpec), location: 'current', format: 'openapi3' },
-      destinationSpec: { content: JSON.stringify(newSpec), location: 'new', format: 'openapi3' },
-    });
+    // Use custom schema diff that properly detects x-* additions and required changes
+    const changes = diffSchemas(currentSpec, newSpec);
+    const hasBreakingChanges = !canAutoApply(changes);
 
-    const changes = classifyChanges(diffResult, ctx);
-
-    // Check for breaking changes
-    if (!canAutoApply(changes) && !force) {
-      // Validate data to provide helpful warnings
+    // Check for breaking changes - require data for breaking migrations
+    if (hasBreakingChanges && !jsonlData) {
+      // Validate existing data to provide helpful warnings
       const validationResult = await validateMigration(ctx, resolvedName, changes);
 
       result.errors.push(
         `Migration contains ${changes.breaking.length} breaking change(s). ` +
-        `Use force=true to apply anyway, or export data first.`
+        `Export your data, fix the violations, and re-import with the fixed data.`
       );
 
       if (validationResult.warnings.length > 0) {
@@ -206,6 +213,19 @@ export async function migrate(ctx: Context, next: Next) {
 
       ctx.body = result;
       return await next();
+    }
+
+    // If data is provided, validate it against the NEW schema constraints
+    let parsedRecords: Record<string, unknown>[] = [];
+    if (jsonlData) {
+      const dataValidation = validateDataAgainstSchema(jsonlData, newSpec, changes);
+      if (!dataValidation.valid) {
+        result.errors.push('Imported data does not satisfy the new schema constraints:');
+        result.errors.push(...dataValidation.errors);
+        ctx.body = result;
+        return await next();
+      }
+      parsedRecords = dataValidation.records;
     }
 
     // Parse new spec to get field definitions
@@ -265,8 +285,8 @@ export async function migrate(ctx: Context, next: Next) {
         }
       }
 
-      // Handle field removals (only if force=true)
-      if (force) {
+      // Handle field removals when data is provided (we're replacing all data anyway)
+      if (parsedRecords.length > 0) {
         for (const change of changes.breaking) {
           if (change.type === 'remove_field' && existingFieldNames.has(change.field)) {
             try {
@@ -301,6 +321,55 @@ export async function migrate(ctx: Context, next: Next) {
         force: false,
         alter: { drop: false },
       });
+
+      // If data was provided, update existing records by ID
+      if (parsedRecords.length > 0) {
+        const repository = ctx.db.getRepository(resolvedName);
+        let recordsUpdated = 0;
+
+        for (let i = 0; i < parsedRecords.length; i++) {
+          const record = parsedRecords[i];
+          const recordId = record.id;
+
+          if (recordId === undefined || recordId === null) {
+            throw new Error(`Record at index ${i}: missing 'id' field - all records must have an id for updates`);
+          }
+
+          try {
+            // Update the existing record by ID
+            const [affectedCount] = await repository.update({
+              filter: { id: recordId },
+              values: record,
+              transaction,
+            });
+
+            if (affectedCount === 0) {
+              // Record doesn't exist - could create it, but for now warn
+              result.warnings.push(`Record id=${recordId}: not found in database, skipped`);
+            } else {
+              recordsUpdated++;
+            }
+          } catch (recordError: any) {
+            // Extract detailed validation error info
+            let errorDetail = recordError.message;
+
+            // Sequelize validation errors have more details
+            if (recordError.errors && Array.isArray(recordError.errors)) {
+              const details = recordError.errors.map((e: any) =>
+                `${e.path}: ${e.message}${e.value !== undefined ? ` (value: ${JSON.stringify(e.value)})` : ''}`
+              ).join('; ');
+              errorDetail = details;
+            }
+
+            throw new Error(`Record id=${recordId}: ${errorDetail}`);
+          }
+        }
+
+        result.dataImport = {
+          recordsUpdated,
+          recordsImported: parsedRecords.length,
+        };
+      }
 
       await transaction.commit();
       result.success = true;
@@ -436,4 +505,109 @@ async function updateField(
   } catch (e: any) {
     return { success: false, error: e.message };
   }
+}
+
+/**
+ * Validate imported JSONL data against the new schema constraints
+ */
+function validateDataAgainstSchema(
+  jsonlData: string,
+  newSpec: any,
+  changes: { breaking: ClassifiedChange[] }
+): DataValidationResult {
+  const errors: string[] = [];
+  const records: Record<string, unknown>[] = [];
+
+  // Parse JSONL
+  const lines = jsonlData.split('\n').filter((line) => line.trim());
+  for (let i = 0; i < lines.length; i++) {
+    try {
+      const record = JSON.parse(lines[i]);
+      if (typeof record !== 'object' || record === null || Array.isArray(record)) {
+        errors.push(`Line ${i + 1}: Expected a JSON object`);
+        continue;
+      }
+      records.push(record);
+    } catch (err: any) {
+      errors.push(`Line ${i + 1}: Invalid JSON - ${err.message}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors: errors.slice(0, 10), records: [] };
+  }
+
+  if (records.length === 0) {
+    errors.push('No valid records found in imported data');
+    return { valid: false, errors, records: [] };
+  }
+
+  // Extract schema constraints from newSpec
+  const schemas = newSpec?.components?.schemas || {};
+  const schemaName = Object.keys(schemas)[0];
+  const schema = schemas[schemaName];
+
+  if (!schema) {
+    return { valid: true, errors: [], records }; // Can't validate without schema
+  }
+
+  const requiredFields = new Set<string>(schema.required || []);
+  const properties = schema.properties || {};
+
+  // Find unique constraints from breaking changes
+  const uniqueFields = new Set<string>();
+  for (const change of changes.breaking) {
+    if (change.type === 'add_unique') {
+      uniqueFields.add(change.field);
+    }
+  }
+
+  // Validate required fields - check for nulls
+  for (const field of requiredFields) {
+    if (SYSTEM_FIELDS.has(field)) continue;
+
+    const nullCount = records.filter((r) => r[field] === null || r[field] === undefined).length;
+    if (nullCount > 0) {
+      errors.push(`Field "${field}" is required but ${nullCount} record(s) have null/undefined values`);
+    }
+  }
+
+  // Validate unique constraints - check for duplicates
+  for (const field of uniqueFields) {
+    const values = records.map((r) => r[field]).filter((v) => v !== null && v !== undefined);
+    const seen = new Map<unknown, number>();
+
+    for (const value of values) {
+      seen.set(value, (seen.get(value) || 0) + 1);
+    }
+
+    const duplicates = Array.from(seen.entries()).filter(([, count]) => count > 1);
+    if (duplicates.length > 0) {
+      const samples = duplicates.slice(0, 3).map(([val]) => String(val)).join(', ');
+      const totalDupes = duplicates.reduce((sum, [, count]) => sum + count, 0);
+      errors.push(`Field "${field}" must be unique but ${totalDupes} record(s) have duplicate values (e.g., ${samples})`);
+    }
+  }
+
+  // Validate enum values
+  for (const [fieldName, prop] of Object.entries(properties) as [string, any][]) {
+    if (prop.enum && Array.isArray(prop.enum)) {
+      const allowedValues = new Set(prop.enum);
+      const invalidRecords = records.filter((r) => {
+        const value = r[fieldName];
+        return value !== null && value !== undefined && !allowedValues.has(value);
+      });
+
+      if (invalidRecords.length > 0) {
+        const samples = invalidRecords.slice(0, 3).map((r) => String(r[fieldName])).join(', ');
+        errors.push(`Field "${fieldName}" has ${invalidRecords.length} record(s) with invalid enum values (e.g., ${samples})`);
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors: errors.slice(0, 10),
+    records,
+  };
 }

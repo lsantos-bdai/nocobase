@@ -14,7 +14,7 @@ interface ImportResult {
 
 const PLACEHOLDER_YAML = `# Paste your OpenAPI YAML spec here
 # Example:
-openapi: '3.0.3'
+openapi: '3.1.0'
 info:
   title: My Collection
   version: 1.0.0

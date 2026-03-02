@@ -9,6 +9,10 @@ interface MigrationResultData {
   fieldsSkipped: string[];
   errors: string[];
   warnings: string[];
+  dataImport?: {
+    recordsImported: number;
+    recordsUpdated: number;
+  };
 }
 
 interface MigrationResultProps {
@@ -32,7 +36,11 @@ export function MigrationResult({ result }: MigrationResultProps) {
         <Alert
           type="success"
           message="Migration Successful"
-          description="The schema changes have been applied to the collection."
+          description={
+            result.dataImport
+              ? `Schema updated. ${result.dataImport.recordsUpdated} of ${result.dataImport.recordsImported} records updated.`
+              : 'The schema changes have been applied to the collection.'
+          }
           icon={<CheckCircleOutlined />}
           showIcon
           style={{ marginBottom: 16 }}

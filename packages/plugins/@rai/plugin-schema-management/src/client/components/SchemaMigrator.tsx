@@ -1,11 +1,14 @@
 import React from 'react';
 import { useAPIClient } from '@nocobase/client';
-import { Button, Input, Space, Spin, Empty, message, Typography, Tabs, Checkbox } from 'antd';
+import { Button, Input, Space, Spin, Empty, message, Typography, Tabs, Upload, Alert } from 'antd';
 import {
   DiffOutlined,
   ThunderboltOutlined,
   DownloadOutlined,
   ReloadOutlined,
+  UploadOutlined,
+  CheckCircleOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { CollectionSelector } from './CollectionSelector';
 import { DiffPreview } from './DiffPreview';
@@ -48,6 +51,10 @@ interface MigrationResultData {
   fieldsSkipped: string[];
   errors: string[];
   warnings: string[];
+  dataImport?: {
+    recordsImported: number;
+    recordsUpdated: number;
+  };
 }
 
 export function SchemaMigrator() {
@@ -68,10 +75,14 @@ export function SchemaMigrator() {
   // Migration states
   const [migrationResult, setMigrationResult] = React.useState<MigrationResultData | null>(null);
   const [migrateLoading, setMigrateLoading] = React.useState(false);
-  const [forceApply, setForceApply] = React.useState(false);
 
   // Export states
   const [exportLoading, setExportLoading] = React.useState(false);
+
+  // Import data states (for breaking change migrations)
+  const [importedData, setImportedData] = React.useState<string | null>(null);
+  const [importedFileName, setImportedFileName] = React.useState<string | null>(null);
+  const [importedRecordCount, setImportedRecordCount] = React.useState<number>(0);
 
   // Load current spec when collection is selected
   const loadCurrentSpec = React.useCallback(async () => {
@@ -84,6 +95,9 @@ export function SchemaMigrator() {
     setLoadingSpec(true);
     setDiffResult(null);
     setMigrationResult(null);
+    setImportedData(null);
+    setImportedFileName(null);
+    setImportedRecordCount(0);
 
     try {
       const response = await api.request({
@@ -153,18 +167,30 @@ export function SchemaMigrator() {
       return;
     }
 
+    // If breaking changes and no data imported, warn user
+    if (diffResult && !diffResult.canAutoApply && !importedData) {
+      message.error('Breaking changes require importing fixed data. Export, fix, then import.');
+      return;
+    }
+
     setMigrateLoading(true);
     setMigrationResult(null);
 
     try {
+      const requestData: Record<string, unknown> = {
+        collection: selectedCollection,
+        spec: newSpec,
+      };
+
+      // Include data if provided (for breaking change migrations)
+      if (importedData) {
+        requestData.data = importedData;
+      }
+
       const response = await api.request({
         url: 'schema-management:migrate',
         method: 'post',
-        data: {
-          collection: selectedCollection,
-          spec: newSpec,
-          force: forceApply,
-        },
+        data: requestData,
       });
 
       const result = response?.data?.data || response?.data;
@@ -172,6 +198,10 @@ export function SchemaMigrator() {
 
       if (result.success) {
         message.success('Migration applied successfully');
+        // Clear imported data
+        setImportedData(null);
+        setImportedFileName(null);
+        setImportedRecordCount(0);
         // Refresh current spec
         await loadCurrentSpec();
         setDiffResult(null);
@@ -189,6 +219,30 @@ export function SchemaMigrator() {
     } finally {
       setMigrateLoading(false);
     }
+  };
+
+  // Handle file import for breaking change migrations
+  const handleFileImport = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      const lines = content.split('\n').filter((line) => line.trim());
+      setImportedData(content);
+      setImportedFileName(file.name);
+      setImportedRecordCount(lines.length);
+      message.success(`Loaded ${lines.length} records from ${file.name}`);
+    };
+    reader.onerror = () => {
+      message.error('Failed to read file');
+    };
+    reader.readAsText(file);
+    return false; // Prevent upload
+  };
+
+  const handleClearImport = () => {
+    setImportedData(null);
+    setImportedFileName(null);
+    setImportedRecordCount(0);
   };
 
   // Export data
@@ -352,6 +406,56 @@ export function SchemaMigrator() {
               </div>
             </div>
 
+            {/* Breaking changes workflow */}
+            {diffResult && !diffResult.canAutoApply && (
+              <Alert
+                type="warning"
+                style={{ marginTop: 12 }}
+                message="Breaking Changes Detected"
+                description={
+                  <div>
+                    <div style={{ marginBottom: 8 }}>
+                      To apply this migration: <strong>1.</strong> Export data → <strong>2.</strong> Fix violations → <strong>3.</strong> Import fixed data
+                    </div>
+                    <Space wrap>
+                      <Button
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        onClick={handleExportData}
+                        loading={exportLoading}
+                      >
+                        1. Export Data
+                      </Button>
+                      <Upload
+                        accept=".jsonl,.json"
+                        showUploadList={false}
+                        beforeUpload={handleFileImport}
+                      >
+                        <Button size="small" icon={<UploadOutlined />}>
+                          3. Import Fixed Data
+                        </Button>
+                      </Upload>
+                    </Space>
+                    {importedFileName && (
+                      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                        <span>
+                          <strong>{importedFileName}</strong> ({importedRecordCount} records)
+                        </span>
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<DeleteOutlined />}
+                          onClick={handleClearImport}
+                          danger
+                        />
+                      </div>
+                    )}
+                  </div>
+                }
+              />
+            )}
+
             {/* Action buttons */}
             <div
               style={{
@@ -363,30 +467,24 @@ export function SchemaMigrator() {
                 alignItems: 'center',
               }}
             >
-              <Space>
-                <Button
-                  type="primary"
-                  icon={<ThunderboltOutlined />}
-                  onClick={handleApplyMigration}
-                  loading={migrateLoading}
-                  disabled={!diffResult}
-                >
-                  Apply Migration
-                </Button>
-                {diffResult && !diffResult.canAutoApply && (
-                  <Checkbox checked={forceApply} onChange={(e) => setForceApply(e.target.checked)}>
-                    Force apply (ignore breaking changes)
-                  </Checkbox>
-                )}
-              </Space>
               <Button
-                icon={<DownloadOutlined />}
-                onClick={handleExportData}
-                loading={exportLoading}
-                danger={diffResult && !diffResult.canAutoApply}
+                type="primary"
+                icon={<ThunderboltOutlined />}
+                onClick={handleApplyMigration}
+                loading={migrateLoading}
+                disabled={!diffResult || (diffResult && !diffResult.canAutoApply && !importedData)}
               >
-                Export Data
+                Apply Migration
               </Button>
+              {(!diffResult || diffResult.canAutoApply) && (
+                <Button
+                  icon={<DownloadOutlined />}
+                  onClick={handleExportData}
+                  loading={exportLoading}
+                >
+                  Export Data
+                </Button>
+              )}
             </div>
           </>
         )}
