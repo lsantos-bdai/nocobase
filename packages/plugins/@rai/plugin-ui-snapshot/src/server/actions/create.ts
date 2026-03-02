@@ -69,19 +69,41 @@ export async function create(ctx: Context, next: Next) {
     flowRegistry: {},
   });
 
-  // Remap UIDs to avoid conflicts with existing data
-  const uidMap = new Map<string, string>();
-  for (const oldUid of Object.keys(body.flowModels)) {
-    uidMap.set(oldUid, generateUid());
+  // Collect UIDs that are targets of ReferenceBlockModels (these are dereferenced copies, skip them)
+  const referencedTargetUids = new Set<string>();
+  for (const model of Object.values(body.flowModels)) {
+    if ((model as any).use === 'ReferenceBlockModel') {
+      const ref = (model as any).stepParams?.referenceSettings;
+      if (ref?.target?.targetUid) {
+        referencedTargetUids.add(ref.target.targetUid);
+      }
+      if (ref?.useTemplate?.targetUid) {
+        referencedTargetUids.add(ref.useTemplate.targetUid);
+      }
+    }
   }
 
-  // Insert all flowModels with remapped UIDs, sorted by sortIndex to preserve order
+  // Remap UIDs to avoid conflicts with existing data
+  // Don't add referenced targets to uidMap - their references should keep original UIDs
+  const uidMap = new Map<string, string>();
+  for (const oldUid of Object.keys(body.flowModels)) {
+    if (!referencedTargetUids.has(oldUid)) {
+      uidMap.set(oldUid, generateUid());
+    }
+  }
+
+  // Insert flowModels with remapped UIDs, sorted by sortIndex to preserve order
+  // Skip models that are targets of ReferenceBlockModels (they're dereferenced copies)
   let modelsImported = 0;
   const sortedModels = Object.entries(body.flowModels).sort(
     ([, a], [, b]) => ((a as any).sortIndex ?? 0) - ((b as any).sortIndex ?? 0),
   );
 
   for (const [oldUid, model] of sortedModels) {
+    // Skip dereferenced copies - the ReferenceBlockModel will resolve to the actual template
+    if (referencedTargetUids.has(oldUid)) {
+      continue;
+    }
     const newUid = uidMap.get(oldUid)!;
     const newParentId = model.parentId ? uidMap.get(model.parentId) || tabsSchemaUid : tabsSchemaUid;
 
