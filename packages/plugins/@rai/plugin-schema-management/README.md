@@ -1,321 +1,313 @@
-# NocoBase Collection Schema → OpenAPI Spec Mapping
+# Schema Management Plugin
 
-This document defines the exact mapping from NocoBase collection schemas and field types to OpenAPI 3.0 specifications.
+Export NocoBase collections to OpenAPI specs and import OpenAPI specs to create collections.
 
-## Purpose
+## Features
 
-Generate OpenAPI schemas from NocoBase collections that can validate databridge responses like:
-
-```json
-{
-  "data": {
-    "Golden": {
-      "$schema": "https://storage.cloud.google.com/.../FrankaResearch3.yaml",
-      "ethernet_ip": "10.103.1.101",
-      "id": 14,
-      "createdAt": "2026-02-19T15:57:32.149Z",
-      "name": "Golden",
-      "serial_number": "290102-1324356",
-      "team": "Compose",
-      "model": "Franka Research 3"
-    }
-  }
-}
-```
+- **Export**: Generate OpenAPI 3.0 YAML schemas from existing collections
+- **Import**: Create collections and fields from OpenAPI YAML specs
+- **Bidirectional**: Specs exported can be imported back (round-trip compatible)
 
 ---
 
-## Field Type Mappings
+## API Endpoints
 
-### Primitive Types
+### List Collections
 
-| NocoBase Type | OpenAPI Type | OpenAPI Format | Notes |
-|---------------|--------------|----------------|-------|
-| `string` | `string` | - | Use `maxLength` if `length` specified |
-| `text` | `string` | - | Long text, no format |
-| `integer` | `integer` | `int32` | |
-| `bigInt` | `integer` | `int64` | |
-| `float` | `number` | `float` | |
-| `double` | `number` | `double` | |
-| `real` | `number` | `float` | |
-| `decimal` | `number` | - | Include precision/scale in description |
-| `boolean` | `boolean` | - | |
-| `radio` | `boolean` | - | Functionally boolean |
+```
+GET /api/schema-management:listCollections
+```
 
-### Date/Time Types
+Returns collections available for export (filters out internal tables).
 
-| NocoBase Type | OpenAPI Type | OpenAPI Format | Notes |
-|---------------|--------------|----------------|-------|
-| `date` | `string` | `date-time` | ISO 8601 with time |
-| `dateOnly` | `string` | `date` | ISO 8601 date only (YYYY-MM-DD) |
-| `datetimeTz` | `string` | `date-time` | Timezone-aware |
-| `datetimeNoTz` | `string` | `date-time` | No timezone |
-| `time` | `string` | `time` | HH:MM:SS |
-| `unixTimestamp` | `integer` | `int64` | Unix epoch seconds |
+### Export Schema
 
-### Identifier Types
+```
+GET /api/schema-management:generate?collection=MyCollection
+```
 
-| NocoBase Type | OpenAPI Type | OpenAPI Format | Notes |
-|---------------|--------------|----------------|-------|
-| `uuid` | `string` | `uuid` | |
-| `uid` | `string` | - | Pattern if `pattern` option set |
-| `nanoid` | `string` | - | |
-| `snowflakeId` | `string` | - | Large integer as string |
+Generates OpenAPI YAML for a collection. Accepts collection name or title.
 
-### Complex Types
+### Import Schema
 
-| NocoBase Type | OpenAPI Type | OpenAPI Format | Notes |
-|---------------|--------------|----------------|-------|
-| `json` | `object` | - | `additionalProperties: true` |
-| `jsonb` | `object` | - | `additionalProperties: true` |
-| `array` | `array` | - | `items` based on `elementType` |
-| `set` | `array` | - | `uniqueItems: true` |
-| `blob` | `string` | `binary` | |
-| `password` | `string` | `password` | |
-| `virtual` | varies | - | Based on computed value type |
+```
+POST /api/schema-management:import
+Content-Type: application/json
 
-### Relation Types
+{ "spec": "openapi: 3.0.3\ninfo:\n  title: MyCollection\n..." }
+```
 
-| NocoBase Type | OpenAPI Representation | Notes |
-|---------------|------------------------|-------|
-| `belongsTo` | `string` | Returns related record's `name` field as string |
-| `hasOne` | `string` | Returns related record's `name` field as string |
-| `hasMany` | `array` of `string` | Returns array of related records' `name` fields |
-| `belongsToMany` | `array` of `string` | Returns array of related records' `name` fields |
+Creates a collection and fields from an OpenAPI spec.
 
-> **Note:** Databridge always resolves relations to their `name` field values - single relations become strings, multiple relations become arrays of strings. Nullable relations can be `null`.
+**Behavior:**
+- Fails if collection already exists
+- Fails if parent collections (inheritance) don't exist
+- Fails if relation target collections don't exist
+- Automatically adds preset fields (createdAt, updatedAt, createdBy, updatedBy)
+- Uses transactions for atomicity
 
 ---
 
-## Field Options → OpenAPI Properties
+## OpenAPI ↔ NocoBase Type Mappings
 
-### Nullability
+### String Types
 
-```yaml
-# NocoBase: allowNull: true (or field is nullable)
-fieldName:
-  type: string
-  nullable: true
+| OpenAPI | NocoBase |
+|---------|----------|
+| `type: string` | `string` |
+| `type: string, format: text` | `text` |
+| `type: string, format: email` | `string` + `interface: email` |
+| `type: string, format: uri` | `string` + `interface: url` |
+| `type: string, format: phone` | `string` + `interface: phone` |
+| `type: string, format: password` | `password` |
+| `type: string, format: uuid` | `uuid` |
+| `type: string, format: date` | `date` |
+| `type: string, format: date-time` | `date` + `interface: datetime` |
+| `type: string, format: time` | `time` |
+| `type: string, enum: [...]` | `string` + `interface: select` |
 
-# NocoBase: allowNull: false
-fieldName:
-  type: string
-  # nullable defaults to false
-```
+### Number Types
 
-### Default Values
+| OpenAPI | NocoBase |
+|---------|----------|
+| `type: integer` | `integer` |
+| `type: integer, format: int64` | `bigInt` |
+| `type: number` | `double` |
+| `type: number, format: float` | `float` |
+| `type: number, format: decimal` | `decimal` (requires `x-precision`, `x-scale`) |
 
-```yaml
-# NocoBase: defaultValue: "active"
-fieldName:
-  type: string
-  default: "active"
-```
+### Other Types
 
-### Constraints
-
-```yaml
-# NocoBase: unique: true → description note only (not OpenAPI validation)
-# NocoBase: primaryKey: true → description note only
-
-# NocoBase: field.options.validation (if present) can inform:
-fieldName:
-  type: string
-  minLength: 1
-  maxLength: 255
-  pattern: "^[a-z]+$"
-```
-
-### Enums (if field has enum/options)
-
-```yaml
-# NocoBase field with enum options
-status:
-  type: string
-  enum:
-    - active
-    - inactive
-    - pending
-```
+| OpenAPI | NocoBase |
+|---------|----------|
+| `type: boolean` | `boolean` |
+| `type: array` (with enum items) | `array` + `interface: multipleSelect` |
+| `type: array` | `json` |
+| `type: object` | `json` |
 
 ---
 
-## Collection → OpenAPI Schema
+## NocoBase Extensions (x-*)
 
-### Basic Structure
+Use these extensions in your OpenAPI spec to access NocoBase-specific features:
 
-Given a NocoBase collection `FrankaResearch3`:
+### Relations
 
 ```yaml
-openapi: "3.0.3"
-info:
-  title: FrankaResearch3 Schema
-  version: "1.0.0"
-  description: Auto-generated from NocoBase collection
+properties:
+  team:
+    type: string
+    x-belongs-to: Team           # belongsTo relation
+  manager:
+    type: string
+    x-has-one: User              # hasOne relation
+  members:
+    type: array
+    x-has-many: User             # hasMany relation
+  tags:
+    type: array
+    x-belongs-to-many: Tag       # belongsToMany relation
+```
 
+### Special Field Types
+
+```yaml
+properties:
+  content:
+    type: string
+    x-nocobase-type: richText    # Rich text editor
+  notes:
+    type: string
+    x-nocobase-type: markdown    # Markdown editor
+  progress:
+    type: number
+    x-nocobase-type: percent     # Percentage display
+  theme:
+    type: string
+    x-nocobase-type: color       # Color picker
+  avatar:
+    type: string
+    x-nocobase-type: icon        # Icon selector
+  code:
+    type: string
+    x-nocobase-type: uid         # Unique ID generator
+  data:
+    type: object
+    x-nocobase-type: jsonb       # JSONB storage
+  order:
+    type: integer
+    x-nocobase-type: sort        # Sortable field
+  computed:
+    type: string
+    x-nocobase-type: formula
+    x-expression: "{{field1}} + {{field2}}"
+```
+
+### Field Constraints
+
+```yaml
+properties:
+  email:
+    type: string
+    x-unique: true               # Unique constraint
+  price:
+    type: number
+    format: decimal
+    x-precision: 10              # Decimal precision
+    x-scale: 2                   # Decimal scale
+```
+
+### Inheritance
+
+```yaml
 components:
   schemas:
-    FrankaResearch3:
+    Robot:
+      type: object
+      x-inherits:
+        - Asset                  # Inherit from Asset collection
+      properties:
+        serial_number:
+          type: string
+```
+
+---
+
+## Required Fields & Nullability
+
+The `required` array controls `allowNull`:
+
+```yaml
+components:
+  schemas:
+    Product:
       type: object
       properties:
-        id:
-          type: integer
-          format: int32
-          description: Primary key
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
         name:
           type: string
-        # ... other fields
+        description:
+          type: string
       required:
-        - id
-        - name
-        # fields where allowNull: false
+        - name    # name: allowNull = false
+                  # description: allowNull = true (not in required)
 ```
-
-### Field Name Transformation
-
-NocoBase internal field names (e.g., `f_nvu6tnxv3sh`) are transformed to human-readable names using the field's `title` option, normalized to snake_case:
-
-- `field.options.title: "Franka Hand Gripper"` → `franka_hand_gripper`
-- Fields without titles keep their original name
 
 ---
 
-## Databridge Response Schema
+## Validation Constraints
 
-The full databridge response wraps collection data:
+OpenAPI validation constraints are mapped to NocoBase JOI validation rules:
+
+| OpenAPI | JOI Rule | Applies To |
+|---------|----------|------------|
+| `required: [field]` | `required` | All types |
+| `minLength: N` | `min` | Strings |
+| `maxLength: N` | `max` | Strings |
+| `pattern: regex` | `pattern` | Strings |
+| `minimum: N` | `min` | Numbers |
+| `maximum: N` | `max` | Numbers |
+| `exclusiveMinimum: N` | `greater` | Numbers |
+| `exclusiveMaximum: N` | `less` | Numbers |
+| `format: email` | `email` | Strings |
+| `format: uuid` | `guid` | Strings |
+| `format: uri` | `uri` | Strings |
+| `minItems: N` | `min` | Arrays |
+| `maxItems: N` | `max` | Arrays |
+
+### Example
 
 ```yaml
-DataBridgeResponse:
-  type: object
-  properties:
-    data:
-      type: object
-      additionalProperties:
-        $ref: '#/components/schemas/FrankaResearch3'
+properties:
+  email:
+    type: string
+    format: email
+    maxLength: 255
+  code:
+    type: string
+    minLength: 3
+    maxLength: 10
+    pattern: "^[A-Z0-9]+$"
+  quantity:
+    type: integer
+    minimum: 1
+    maximum: 100
+required:
+  - email
+  - code
 ```
 
-Or for a single asset with `$schema` reference:
-
-```yaml
-AssetWithSchema:
-  type: object
-  properties:
-    $schema:
-      type: string
-      format: uri
-      description: URL to the OpenAPI schema for validation
-  allOf:
-    - $ref: '#/components/schemas/FrankaResearch3'
-```
+This generates fields with validation that NocoBase enforces at the API level before database operations.
 
 ---
 
-## Mapping Rules Summary
-
-1. **Type mapping**: Use the table above to convert NocoBase field type → OpenAPI type/format
-2. **Nullability**: Set `nullable: true` if `allowNull !== false`
-3. **Required fields**: Fields with `allowNull: false` or `primaryKey: true` go in `required` array
-4. **Relations**: Map to `string` (single) or `array` of `string` (multiple) - databridge resolves to names
-5. **Field names**: Use normalized `title` if available, otherwise raw field name
-6. **Auto fields**: Include `id`, `createdAt`, `updatedAt` if `autoGenId` is enabled
-
----
-
-## Example Conversion
-
-### NocoBase Collection Schema (conceptual)
-
-```json
-{
-  "name": "t_abc123",
-  "title": "FrankaResearch3",
-  "fields": [
-    { "name": "id", "type": "integer", "primaryKey": true, "autoIncrement": true },
-    { "name": "createdAt", "type": "date" },
-    { "name": "updatedAt", "type": "date" },
-    { "name": "name", "type": "string", "allowNull": false },
-    { "name": "f_serial", "type": "string", "title": "Serial Number" },
-    { "name": "f_status", "type": "string", "title": "Status", "defaultValue": "active" },
-    { "name": "f_team", "type": "belongsTo", "title": "Team", "target": "teams" },
-    { "name": "f_grippers", "type": "hasMany", "title": "Grippers", "target": "grippers" }
-  ]
-}
-```
-
-### Generated OpenAPI Schema
+## Example Spec
 
 ```yaml
 openapi: "3.0.3"
 info:
-  title: FrankaResearch3
+  title: Robot
   version: "1.0.0"
-
 components:
   schemas:
-    FrankaResearch3:
+    Robot:
       type: object
       properties:
-        id:
-          type: integer
-          format: int32
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
         name:
           type: string
         serial_number:
+          description: Serial Number
           type: string
-          nullable: true
+          x-unique: true
         status:
+          description: Status
           type: string
-          default: "active"
-          nullable: true
+          enum:
+            - active
+            - inactive
+            - maintenance
         team:
+          description: Team
           type: string
-          nullable: true
-          description: "Related record name from teams collection"
-        grippers:
-          type: array
-          items:
-            type: string
-          description: "Related record names from grippers collection"
+          x-belongs-to: Team
+        ip_address:
+          description: IP Address
+          type: string
+          format: uri
+        last_seen:
+          description: Last Seen
+          type: string
+          format: date-time
       required:
-        - id
         - name
+        - serial_number
 ```
+
+This creates a collection with:
+- `name` (string, required)
+- `serial_number` (string, required, unique)
+- `status` (select dropdown)
+- `team` (belongsTo relation to Team collection)
+- `ip_address` (URL field)
+- `last_seen` (datetime field)
+- Plus auto-generated: `id`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`
 
 ---
 
-## Implementation Notes
+## UI Access
 
-1. **Skip internal fields**: Fields starting with `f_` without a `title` should be skipped (auto-generated FK fields)
-2. **Hidden fields**: Respect `hidden: true` option - exclude from schema
-3. **Virtual fields**: Include if they have a clear type, otherwise skip
-4. **Context fields**: Skip (server-side only)
-5. **Password fields**: Skip or mark as writeOnly
+Navigate to **Settings → Schema Management**:
+
+- **Export tab**: Select a collection and view/copy its OpenAPI schema
+- **Import tab**: Paste an OpenAPI spec and click Import
 
 ---
 
-## Verification
+## Limitations
 
-Test the generated schema validates actual databridge responses:
-
-```bash
-# Generate schema
-curl "http://localhost:13000/api/schema-management:generate?collection=FrankaResearch3" > schema.yaml
-
-# Get databridge response
-curl "http://localhost:13000/api/databridge:lookup?platform=models&asset_name=Golden" > response.json
-
-# Validate (using a JSON Schema validator)
-# The response.data.Golden object should validate against FrankaResearch3 schema
-```
+- Single schema per spec (first schema in `components.schemas` is used)
+- No batch import (import one collection at a time)
+- Parent collections must exist before importing child collections
+- Relation target collections must exist before importing
+- Some advanced NocoBase features not yet supported:
+  - Attachment fields
+  - Sequence fields

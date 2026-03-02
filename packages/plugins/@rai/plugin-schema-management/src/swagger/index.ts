@@ -156,5 +156,120 @@ components:
         },
       },
     },
+    '/schema-management:import': {
+      post: {
+        tags: ['schema-management'],
+        summary: 'Import OpenAPI spec to create a collection',
+        description:
+          'Creates a collection and its fields from an OpenAPI YAML spec. Automatically adds preset fields (createdAt, updatedAt, createdBy, updatedBy). Fails if the collection already exists or if dependencies (parent collections, relation targets) are missing.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['spec'],
+                properties: {
+                  spec: {
+                    type: 'string',
+                    description: 'OpenAPI YAML spec',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Import result with created collection and fields',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ImportResult',
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Invalid spec or missing required fields',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    errors: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          message: { type: 'string' },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  errors: [{ message: 'Invalid OpenAPI spec: missing info.title' }],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  components: {
+    schemas: {
+      ImportResult: {
+        type: 'object',
+        properties: {
+          success: {
+            type: 'boolean',
+            description: 'Whether the import was successful',
+          },
+          collection: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Internal collection name',
+              },
+              title: {
+                type: 'string',
+                description: 'Human-readable title',
+              },
+            },
+          },
+          fieldsCreated: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of field names that were created',
+          },
+          fieldsSkipped: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of field names that were skipped',
+          },
+          warnings: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Non-fatal warnings during import',
+          },
+          errors: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Error messages if import failed',
+          },
+        },
+        example: {
+          success: true,
+          collection: { name: 't_abc123xyz', title: 'Arm Station' },
+          fieldsCreated: ['name', 'serial_number', 'status'],
+          fieldsSkipped: [],
+          warnings: [],
+          errors: [],
+        },
+      },
+    },
   },
 };

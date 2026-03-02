@@ -7,13 +7,13 @@ interface OpenAPIPropertySchema {
   enum?: string[];
   items?: { type: string; enum?: string[] };
   default?: any;
-  nullable?: boolean;
   readOnly?: boolean;
   'x-belongs-to'?: string;
   'x-has-one'?: string;
   'x-has-many'?: string;
   'x-belongs-to-many'?: string;
   'x-nocobase-type'?: string;
+  'x-unique'?: boolean;
   'x-expression'?: string;
 }
 
@@ -353,17 +353,15 @@ export function mapFieldToOpenAPI(field: Field, context?: FieldMapperContext): O
 }
 
 /**
- * Handle nullable and default value properties
+ * Handle default value and unique constraint properties
+ * Note: We don't emit `nullable` - nullability is determined by the `required` array
  */
 function handleNullableAndDefault(schema: OpenAPIPropertySchema, options: any): void {
-  // Handle default value
   if (options.defaultValue !== undefined) {
     schema.default = options.defaultValue;
   }
-
-  // Handle nullable
-  if (options.allowNull === true) {
-    schema.nullable = true;
+  if (options.unique === true) {
+    schema['x-unique'] = true;
   }
 }
 

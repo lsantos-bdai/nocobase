@@ -1,5 +1,5 @@
 import { Plugin } from '@nocobase/server';
-import { listCollections, generate } from './actions';
+import { listCollections, generate, importSpec } from './actions';
 
 export class PluginSchemaManagementServer extends Plugin {
   async afterAdd() {}
@@ -13,17 +13,22 @@ export class PluginSchemaManagementServer extends Plugin {
       actions: {
         listCollections,
         generate,
+        import: importSpec,
       },
     });
 
     // ACL permissions - register snippet for role-based access
     this.app.acl.registerSnippet({
       name: 'pm.schema-management',
-      actions: ['schema-management:listCollections', 'schema-management:generate'],
+      actions: [
+        'schema-management:listCollections',
+        'schema-management:generate',
+        'schema-management:import',
+      ],
     });
 
     // Allow logged-in users with pm.schema-management snippet to use these actions
-    this.app.acl.allow('schema-management', ['listCollections', 'generate'], 'loggedIn');
+    this.app.acl.allow('schema-management', ['listCollections', 'generate', 'import'], 'loggedIn');
   }
 
   async install() {}
