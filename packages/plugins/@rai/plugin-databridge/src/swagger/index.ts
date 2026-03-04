@@ -150,7 +150,8 @@ export default {
             in: 'query',
             required: true,
             schema: {
-              oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              type: 'array',
+              items: { type: 'string' },
             },
             description: 'Asset name(s) to look up. Can be a single name or multiple names.',
           },
