@@ -2,15 +2,15 @@ import { Context, Next } from '@nocobase/actions';
 import { getPlatformOrThrow } from '../utils';
 
 export async function viewPlatform(ctx: Context, next: Next) {
-  const { filterByTk } = ctx.action.params;
+  const platformIdentifier = ctx.action.params.platform || ctx.request.query.platform;
   const { page = 1, pageSize = 50 } = ctx.action.params;
 
-  if (!filterByTk) {
-    ctx.throw(400, 'filterByTk (platform id) is required');
+  if (!platformIdentifier) {
+    ctx.throw(400, 'platform parameter (id or slug) is required');
   }
 
-  const platform = await getPlatformOrThrow(ctx, filterByTk);
-  const lookupRepo = ctx.db.getRepository(platform.collectionName);
+  const platformRecord = await getPlatformOrThrow(ctx, platformIdentifier);
+  const lookupRepo = ctx.db.getRepository(platformRecord.collectionName);
 
   const [entries, total] = await Promise.all([
     lookupRepo.find({

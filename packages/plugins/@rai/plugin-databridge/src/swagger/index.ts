@@ -609,7 +609,7 @@ export default {
         summary: 'Get a single platform by ID or slug',
         parameters: [
           {
-            name: 'filterByTk',
+            name: 'platform',
             in: 'query',
             required: true,
             schema: { type: 'string' },
@@ -665,13 +665,13 @@ export default {
         },
       },
     },
-    '/databridge_platforms:sync': {
+    '/databridge_platforms:add': {
       post: {
         tags: ['databridge_platforms'],
-        summary: 'Sync collections to a platform',
+        summary: 'Register collections with a platform and sync their records',
         parameters: [
           {
-            name: 'filterByTk',
+            name: 'platform',
             in: 'query',
             required: true,
             schema: { type: 'string' },
@@ -679,6 +679,7 @@ export default {
           },
         ],
         requestBody: {
+          required: true,
           content: {
             'application/json': {
               schema: {
@@ -688,7 +689,7 @@ export default {
                   collections: {
                     type: 'array',
                     items: { type: 'string' },
-                    description: 'Collection names to sync',
+                    description: 'Collection names to register and sync',
                   },
                 },
               },
@@ -697,19 +698,72 @@ export default {
         },
         responses: {
           200: {
-            description: 'Sync completed',
+            description: 'Collections registered and synced',
             content: {
               'application/json': {
                 schema: {
                   type: 'object',
                   properties: {
-                    synced: { type: 'integer', description: 'Number of entries synced' },
-                    errors: { type: 'array', items: { type: 'string' } },
+                    synced: { type: 'integer', description: 'Number of lookup entries created' },
+                    collections: { type: 'integer', description: 'Number of collections registered' },
                   },
                 },
               },
             },
           },
+          400: { description: 'Missing or invalid parameters' },
+          404: { description: 'Platform not found' },
+          409: { description: 'Duplicate asset names detected across collections' },
+        },
+      },
+    },
+    '/databridge_platforms:remove': {
+      post: {
+        tags: ['databridge_platforms'],
+        summary: 'Unregister collections from a platform and delete their lookup entries',
+        parameters: [
+          {
+            name: 'platform',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Platform ID or slug',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['collections'],
+                properties: {
+                  collections: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Collection names to unregister',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Collections unregistered',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    removed: { type: 'integer', description: 'Number of lookup entries deleted' },
+                    collections: { type: 'integer', description: 'Number of collections unregistered' },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing or invalid parameters' },
           404: { description: 'Platform not found' },
         },
       },
@@ -721,7 +775,7 @@ export default {
         description: 'Triggers a full re-sync of all collections currently registered with the platform.',
         parameters: [
           {
-            name: 'filterByTk',
+            name: 'platform',
             in: 'query',
             required: true,
             schema: { type: 'string' },
@@ -755,7 +809,7 @@ export default {
         description: 'Triggers a re-sync of a specific collection that is already registered with the platform.',
         parameters: [
           {
-            name: 'filterByTk',
+            name: 'platform',
             in: 'query',
             required: true,
             schema: { type: 'string' },
@@ -799,64 +853,13 @@ export default {
         },
       },
     },
-    '/databridge_platforms:removeCollection': {
-      post: {
-        tags: ['databridge_platforms'],
-        summary: 'Remove a collection from a platform',
-        description:
-          'Removes a collection from the platform and deletes all associated lookup entries. The source collection data is not affected.',
-        parameters: [
-          {
-            name: 'filterByTk',
-            in: 'query',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Platform ID or slug',
-          },
-        ],
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['collection'],
-                properties: {
-                  collection: {
-                    type: 'string',
-                    description: 'Collection name to remove',
-                  },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          200: {
-            description: 'Collection removed',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    removed: { type: 'integer', description: 'Number of lookup entries deleted' },
-                    collection: { type: 'string' },
-                  },
-                },
-              },
-            },
-          },
-          400: { description: 'Collection not registered with this platform' },
-          404: { description: 'Platform not found' },
-        },
-      },
-    },
-    '/databridge_platforms:destroy': {
+    '/databridge_platforms:deletePlatform': {
       post: {
         tags: ['databridge_platforms'],
         summary: 'Delete a platform',
         parameters: [
           {
-            name: 'filterByTk',
+            name: 'platform',
             in: 'query',
             required: true,
             schema: { type: 'string' },
@@ -875,7 +878,7 @@ export default {
         summary: 'View platform lookup entries',
         parameters: [
           {
-            name: 'filterByTk',
+            name: 'platform',
             in: 'query',
             required: true,
             schema: { type: 'string' },
@@ -927,7 +930,7 @@ export default {
               },
             },
           },
-          400: { description: 'Missing filterByTk parameter' },
+          400: { description: 'Missing platform parameter' },
           404: { description: 'Platform not found' },
         },
       },

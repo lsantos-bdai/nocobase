@@ -53,7 +53,8 @@ export async function update(ctx: Context, next: Next) {
   // Validate input using unified schema
   const validation = validateAssetPayloadMap(body, { requireId: true });
   if (!validation.valid) {
-    ctx.throw(400, validation.error);
+    ctx.throw(400, (validation as { valid: false; error: string }).error);
+    return;
   }
 
   // Group assets by platform for efficient processing

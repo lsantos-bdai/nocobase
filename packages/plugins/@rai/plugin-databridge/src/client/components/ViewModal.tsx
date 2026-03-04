@@ -23,7 +23,7 @@ export function ViewModal({ open, platform, onClose }: ViewModalProps) {
       setLoading(true);
       try {
         const res = await api.request({
-          url: `databridge_platforms:view?filterByTk=${platform.id}&page=${page}&pageSize=${pageSize}`,
+          url: `databridge_platforms:view?platform=${platform.id}&page=${page}&pageSize=${pageSize}`,
           method: 'get',
         });
         const responseBody = res?.data?.data || {};

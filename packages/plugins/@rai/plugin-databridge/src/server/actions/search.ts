@@ -207,7 +207,7 @@ export async function search(ctx: Context, next: Next) {
       // Query with search filter
       const remaining = maxResults - totalFound;
       const assets = await ctx.db.getRepository(collectionName).find({
-        filter: searchFilter,
+        filter: searchFilter as any,
         appends: relationFields,
         limit: remaining,
       });
@@ -247,7 +247,7 @@ export async function search(ctx: Context, next: Next) {
 
     // Search the lookup table
     const lookupResults = await ctx.db.getRepository(platformRecord.collectionName).find({
-      filter: lookupFilter,
+      filter: lookupFilter as any,
       limit: maxResults,
     });
 

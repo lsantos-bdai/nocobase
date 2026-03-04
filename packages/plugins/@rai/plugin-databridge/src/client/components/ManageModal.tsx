@@ -63,20 +63,25 @@ export function ManageModal({ open, platform, onClose, onSuccess }: ManageModalP
     setDuplicateError(null);
 
     try {
-      const res = await api.request({
-        url: `databridge_platforms:sync?filterByTk=${platform.id}`,
-        method: 'post',
-        data: {
-          collections: toAdd,
-          collectionsToRemove: toRemove,
-        },
-      });
+      await Promise.all([
+        toRemove.length > 0 &&
+          api.request({
+            url: `databridge_platforms:remove?platform=${platform.id}`,
+            method: 'post',
+            data: { collections: toRemove },
+          }),
+        toAdd.length > 0 &&
+          api.request({
+            url: `databridge_platforms:add?platform=${platform.id}`,
+            method: 'post',
+            data: { collections: toAdd },
+          }),
+      ]);
 
-      const { synced, removed } = res?.data?.data || {};
       const parts: string[] = [];
-      if (synced > 0) parts.push(`${synced} records added`);
-      if (removed > 0) parts.push(`${removed} records removed`);
-      message.success(parts.length > 0 ? parts.join(', ') : 'Collections updated successfully');
+      if (toAdd.length > 0) parts.push(`${toAdd.length} collection(s) added`);
+      if (toRemove.length > 0) parts.push(`${toRemove.length} collection(s) removed`);
+      message.success(parts.join(', '));
       onSuccess();
       onClose();
     } catch (err: any) {

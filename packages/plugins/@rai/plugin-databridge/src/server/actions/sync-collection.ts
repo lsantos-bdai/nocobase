@@ -3,19 +3,19 @@ import { getPlatformOrThrow, getLookupRepoOrThrow, getCollectionTitle, validateC
 import { syncRecordsToLookup } from '../utils';
 
 export async function syncCollection(ctx: Context, next: Next) {
-  const { filterByTk } = ctx.action.params;
+  const platformIdentifier = ctx.action.params.platform || ctx.request.query.platform;
   const { collection: collectionName } = ctx.action.params.values || {};
 
-  if (!filterByTk) {
-    ctx.throw(400, 'filterByTk (platform id) is required');
+  if (!platformIdentifier) {
+    ctx.throw(400, 'platform parameter (id or slug) is required');
   }
 
   if (!collectionName) {
     ctx.throw(400, 'collection name is required');
   }
 
-  const platform = await getPlatformOrThrow(ctx, filterByTk);
-  const lookupRepo = await getLookupRepoOrThrow(ctx, platform);
+  const platformRecord = await getPlatformOrThrow(ctx, platformIdentifier);
+  const lookupRepo = await getLookupRepoOrThrow(ctx, platformRecord);
 
   // Validate collection exists and has 'name' field
   validateCollectionHasNameField(ctx, collectionName);

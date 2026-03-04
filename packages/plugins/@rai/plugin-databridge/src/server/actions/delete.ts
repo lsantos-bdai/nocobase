@@ -55,7 +55,8 @@ export async function deleteAssets(ctx: Context, next: Next) {
   // Note: We allow either id OR name for deletion (name is used for lookup if no id)
   const validation = validateAssetPayloadMap(body, { requireId: false });
   if (!validation.valid) {
-    ctx.throw(400, validation.error);
+    ctx.throw(400, (validation as { valid: false; error: string }).error);
+    return;
   }
 
   // Group assets by platform for efficient processing

@@ -3,18 +3,18 @@ import { getPlatformOrThrow, getLookupRepoOrThrow, getCollectionTitles } from '.
 import { syncRecordsToLookup } from '../utils';
 
 export async function syncAll(ctx: Context, next: Next) {
-  const { filterByTk } = ctx.action.params;
+  const platformIdentifier = ctx.action.params.platform || ctx.request.query.platform;
 
-  if (!filterByTk) {
-    ctx.throw(400, 'filterByTk (platform id) is required');
+  if (!platformIdentifier) {
+    ctx.throw(400, 'platform parameter (id or slug) is required');
   }
 
-  const platform = await getPlatformOrThrow(ctx, filterByTk);
-  const lookupRepo = await getLookupRepoOrThrow(ctx, platform);
+  const platformRecord = await getPlatformOrThrow(ctx, platformIdentifier);
+  const lookupRepo = await getLookupRepoOrThrow(ctx, platformRecord);
 
   // Get distinct collection names from the lookup table
   const entries = await lookupRepo.find({ fields: ['collection'] });
-  const collectionNames = [...new Set(entries.map((e: any) => e.collection))];
+  const collectionNames: string[] = Array.from(new Set(entries.map((e: any) => String(e.collection))));
 
   if (collectionNames.length === 0) {
     ctx.body = { synced: 0, collections: 0 };
@@ -26,7 +26,7 @@ export async function syncAll(ctx: Context, next: Next) {
   const collectionTitles = await getCollectionTitles(ctx.db, collectionNames);
 
   // Clear all entries using TRUNCATE for reliability
-  const lookupCollection = ctx.db.getCollection(platform.collectionName);
+  const lookupCollection = ctx.db.getCollection(platformRecord.collectionName);
   const model = lookupCollection.model;
   await model.destroy({ where: {}, truncate: true });
 

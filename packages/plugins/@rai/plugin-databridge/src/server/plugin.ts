@@ -9,13 +9,14 @@ import {
   create,
   deleteAssets,
   createPlatform,
-  syncPlatform,
+  addPlatformCollections,
+  removePlatformCollections,
   destroyPlatform,
   listCollections,
   viewPlatform,
   syncAll,
   syncCollection,
-  removeCollection,
+  getPlatform,
 } from './actions';
 import { DuplicateNamesError } from './errors/duplicate-names-error';
 import { getCollectionTitle } from './utils';
@@ -54,13 +55,14 @@ export class PluginDatabridgeServer extends Plugin {
     });
 
     // Register custom actions for databridge_platforms (overrides default)
-    this.app.resourceManager.registerActionHandler('databridge_platforms:create', createPlatform);
-    this.app.resourceManager.registerActionHandler('databridge_platforms:sync', syncPlatform);
-    this.app.resourceManager.registerActionHandler('databridge_platforms:destroy', destroyPlatform);
-    this.app.resourceManager.registerActionHandler('databridge_platforms:view', viewPlatform);
-    this.app.resourceManager.registerActionHandler('databridge_platforms:syncAll', syncAll);
-    this.app.resourceManager.registerActionHandler('databridge_platforms:syncCollection', syncCollection);
-    this.app.resourceManager.registerActionHandler('databridge_platforms:removeCollection', removeCollection);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:get', getPlatform as any);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:create', createPlatform as any);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:add', addPlatformCollections as any);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:remove', removePlatformCollections as any);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:deletePlatform', destroyPlatform as any);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:view', viewPlatform as any);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:syncAll', syncAll as any);
+    this.app.resourceManager.registerActionHandler('databridge_platforms:syncCollection', syncCollection as any);
 
     // ACL permissions - register snippet for role-based access
     this.app.acl.registerSnippet({
@@ -84,7 +86,7 @@ export class PluginDatabridgeServer extends Plugin {
     // Allow databridge_platforms actions for users with pm.databridge snippet
     this.app.acl.allow(
       'databridge_platforms',
-      ['list', 'get', 'create', 'update', 'destroy', 'sync', 'view', 'syncAll', 'syncCollection', 'removeCollection'],
+      ['list', 'get', 'create', 'update', 'deletePlatform', 'add', 'remove', 'view', 'syncAll', 'syncCollection'],
       'loggedIn',
     );
 

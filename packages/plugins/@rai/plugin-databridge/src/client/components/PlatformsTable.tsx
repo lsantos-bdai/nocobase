@@ -52,7 +52,7 @@ export function PlatformsTable() {
       onOk: async () => {
         try {
           await api.request({
-            url: `databridge_platforms:destroy?filterByTk=${id}`,
+            url: `databridge_platforms:deletePlatform?platform=${id}`,
             method: 'post',
           });
           message.success('Platform deleted');
@@ -78,7 +78,7 @@ export function PlatformsTable() {
     setSyncingPlatformId(platform.id);
     try {
       const res = await api.request({
-        url: `databridge_platforms:syncAll?filterByTk=${platform.id}`,
+        url: `databridge_platforms:syncAll?platform=${platform.id}`,
         method: 'post',
       });
       const { synced, collections, errors } = res?.data?.data || {};
