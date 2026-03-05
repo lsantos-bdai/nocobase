@@ -292,9 +292,7 @@ export class RouteResolver {
     let sort = 0;
 
     if (options.parentPath) {
-      const parentResolved = await this.resolveRouteByPath(options.parentPath);
-      if (!parentResolved) throw new Error(`Parent path not found: ${options.parentPath}`);
-      parentId = parentResolved.routeId;
+      parentId = await this.ensureGroupPath(options.parentPath);
 
       const siblings = await repo.find({ filter: { parentId } });
       sort = siblings.length > 0 ? Math.max(...siblings.map((s: any) => s.sort || 0)) + 1 : 0;
@@ -365,6 +363,47 @@ export class RouteResolver {
   /**
    * Resolve path to route only (without page content).
    */
+  /**
+   * Walk a path like "Template/SubGroup", creating any missing group routes along the way.
+   * Returns the routeId of the final (deepest) segment.
+   */
+  private async ensureGroupPath(path: string): Promise<number> {
+    const repo = this.db.getRepository('desktopRoutes');
+    const parts = path.split('/').filter(Boolean);
+
+    let currentParentId: number | null = null;
+    let currentRoutes = await this.getRoutesTree();
+
+    for (const part of parts) {
+      const found = currentRoutes.find((r) => r.title?.toLowerCase() === part.toLowerCase());
+
+      if (found) {
+        currentParentId = found.id;
+        currentRoutes = found.children || [];
+      } else {
+        // Create the missing group route
+        const siblings = await repo.find({ filter: { parentId: currentParentId } });
+        const sort = siblings.length > 0 ? Math.max(...siblings.map((s: any) => s.sort || 0)) + 1 : 0;
+
+        const created = await repo.create({
+          values: {
+            title: part,
+            schemaUid: null,
+            parentId: currentParentId,
+            sort,
+            type: 'group',
+            hideInMenu: false,
+          },
+        });
+
+        currentParentId = created.id;
+        currentRoutes = [];
+      }
+    }
+
+    return currentParentId!;
+  }
+
   private async resolveRouteByPath(path: string): Promise<{ routeId: number; title: string } | null> {
     const pathParts = path.split('/').filter(Boolean);
     if (pathParts.length === 0) return null;
