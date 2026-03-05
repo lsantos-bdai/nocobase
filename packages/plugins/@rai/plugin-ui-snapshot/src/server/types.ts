@@ -43,14 +43,6 @@ export interface PageSnapshot {
 }
 
 /**
- * Multi-page snapshot.
- */
-export interface UISnapshot {
-  exported_at: string;
-  pages: PageSnapshot[];
-}
-
-/**
  * Route resolution types.
  */
 export interface ResolvedRoute {

@@ -52,14 +52,6 @@ export default {
           },
         },
       },
-      UISnapshot: {
-        type: 'object',
-        properties: {
-          exported_at: { type: 'string', format: 'date-time' },
-          pages: { type: 'array', items: { $ref: '#/components/schemas/PageSnapshot' } },
-          pageCount: { type: 'integer' },
-        },
-      },
       CreateResponse: {
         type: 'object',
         properties: {
@@ -161,18 +153,6 @@ export default {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/PageSnapshot' } } },
           },
           404: { description: 'Page not found' },
-        },
-      },
-    },
-    '/ui-snapshot:exportAll': {
-      get: {
-        tags: ['ui-snapshot'],
-        summary: 'Export all pages',
-        responses: {
-          200: {
-            description: 'UI snapshot',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/UISnapshot' } } },
-          },
         },
       },
     },

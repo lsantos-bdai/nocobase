@@ -14,7 +14,7 @@
  * Preserves complete FlowModel state without transformation.
  */
 import type { Database } from '@nocobase/database';
-import type { FlowModel, PageSnapshot, UISnapshot } from '../types';
+import type { FlowModel, PageSnapshot } from '../types';
 import { RouteResolver } from './route-resolver';
 
 export class PageExporter {
@@ -42,27 +42,6 @@ export class PageExporter {
     }
 
     return this.buildSnapshot(resolved.pageUid, resolved.title, path);
-  }
-
-  /**
-   * Export all pages.
-   */
-  async exportAllPages(): Promise<UISnapshot> {
-    const pages = await this.routeResolver.getAllPagePaths();
-    const snapshots: PageSnapshot[] = [];
-
-    for (const page of pages) {
-      const resolved = await this.routeResolver.resolveByPath(page.path);
-      if (!resolved) continue;
-
-      const snapshot = await this.buildSnapshot(resolved.pageUid, page.path.split('/').pop() || '', page.path);
-      snapshots.push(snapshot);
-    }
-
-    return {
-      exported_at: new Date().toISOString(),
-      pages: snapshots,
-    };
   }
 
   /**
