@@ -137,7 +137,7 @@ export async function exportData(ctx: Context, next: Next) {
  * GET /api/schema-management:export?collection=MyCollection
  */
 export async function exportDataGet(ctx: Context, next: Next) {
-  const { collection: collectionName, fields } = ctx.action.params;
+  const { collection: collectionName, fields } = ctx.action.params as { collection: string; fields?: string | string[] };
 
   if (!collectionName) {
     ctx.throw(400, 'collection parameter is required');

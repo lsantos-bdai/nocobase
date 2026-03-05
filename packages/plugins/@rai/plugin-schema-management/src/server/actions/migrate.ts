@@ -332,7 +332,7 @@ export async function migrate(ctx: Context, next: Next) {
         transaction,
         force: false,
         alter: { drop: false },
-      });
+      } as any);
 
       // If data was provided, update existing records by ID
       if (parsedRecords.length > 0) {

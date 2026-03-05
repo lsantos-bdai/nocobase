@@ -241,7 +241,7 @@ async function executeImport(
       alter: {
         drop: false,
       },
-    });
+    } as any);
 
     await transaction.commit();
     result.success = true;
