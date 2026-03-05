@@ -42,6 +42,8 @@ interface ImportResult {
 
 interface ImportSpecRequest {
   spec: string;
+  /** Optional: force the internal collection name (e.g. "t_abc123"). If omitted, NocoBase auto-generates one. */
+  collectionName?: string;
 }
 
 /**
@@ -52,7 +54,7 @@ interface ImportSpecRequest {
  */
 export async function importSpec(ctx: Context, next: Next) {
   const body = (ctx.request.body || ctx.action.params.values || {}) as ImportSpecRequest;
-  const { spec } = body;
+  const { spec, collectionName } = body;
 
   if (!spec) {
     ctx.throw(400, 'spec parameter is required (YAML string)');
@@ -127,7 +129,7 @@ export async function importSpec(ctx: Context, next: Next) {
   }
 
   // Execute import within a transaction
-  const result = await executeImport(ctx, schema, titleToName);
+  const result = await executeImport(ctx, schema, titleToName, collectionName);
 
   // Add system field warnings to the result
   result.warnings = [...systemFieldWarnings, ...result.warnings];
@@ -143,6 +145,7 @@ async function executeImport(
   ctx: Context,
   schema: CollectionSchema,
   titleToName: Map<string, string>,
+  collectionName?: string,
 ): Promise<ImportResult> {
   const result: ImportResult = {
     success: false,
@@ -159,6 +162,11 @@ async function executeImport(
     const collectionPayload: Record<string, unknown> = {
       title: schema.title,
     };
+
+    // Use explicit internal name if provided (preserves collection name across server migrations)
+    if (collectionName) {
+      collectionPayload.name = collectionName;
+    }
 
     // Use explicit x-title-field if provided
     if (schema.titleField) {
@@ -185,7 +193,7 @@ async function executeImport(
     };
 
     titleToName.set(schema.title, created.name);
-    const collectionName = created.name;
+    const createdName = created.name;
 
     // Create non-relation fields first
     for (const field of schema.fields) {
@@ -194,7 +202,7 @@ async function executeImport(
       try {
         const fieldModel = await ctx.db.getRepository('fields').create({
           values: {
-            collectionName,
+            collectionName: createdName,
             ...field,
           },
           context: ctx,
@@ -217,7 +225,7 @@ async function executeImport(
       try {
         const fieldModel = await ctx.db.getRepository('fields').create({
           values: {
-            collectionName,
+            collectionName: createdName,
             ...field,
             target: targetName,
           },
@@ -234,7 +242,7 @@ async function executeImport(
     }
 
     // Sync the collection to apply schema changes (allowNull, unique, etc.) to PostgreSQL
-    const collection = ctx.db.getCollection(collectionName);
+    const collection = ctx.db.getCollection(createdName);
     await collection.sync({
       transaction,
       force: false,

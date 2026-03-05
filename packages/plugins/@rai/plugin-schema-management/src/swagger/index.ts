@@ -121,6 +121,12 @@ components:
                 required: ['spec'],
                 properties: {
                   spec: { type: 'string', description: 'OpenAPI YAML spec string' },
+                  collectionName: {
+                    type: 'string',
+                    description:
+                      'Optional: explicit internal collection name to use (e.g. "t_abc123"). If omitted, NocoBase auto-generates one. Useful when migrating between servers to preserve the original collection name so data backups and UI snapshots remain valid.',
+                    example: 't_9dx8b5vb55b',
+                  },
                 },
               },
             },
