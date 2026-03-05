@@ -221,12 +221,14 @@ async function executeImport(
     for (const field of schema.fields) {
       if (!isRelationField(field)) continue;
 
-      const targetName = titleToName.get(field.target!);
+      // Prefer explicit internal collection name (x-target-collection) over title-based lookup
+      const { targetCollection, ...fieldValues } = field;
+      const targetName = targetCollection || titleToName.get(field.target!);
       try {
         const fieldModel = await ctx.db.getRepository('fields').create({
           values: {
             collectionName: createdName,
-            ...field,
+            ...fieldValues,
             target: targetName,
           },
           context: ctx,
@@ -277,11 +279,14 @@ function validateDependencies(schema: CollectionSchema, titleToName: Map<string,
     }
   }
 
-  // Check relation targets
+  // Check relation targets — prefer targetCollection (internal name) over target (title)
   const relationFields = schema.fields.filter((f) => isRelationField(f) && f.target);
   const missingTargets = relationFields
-    .filter((f) => !titleToName.has(f.target!))
-    .map((f) => ({ field: f.name, target: f.target! }));
+    .filter((f) => {
+      if (f.targetCollection && titleToName.has(f.targetCollection)) return false;
+      return !titleToName.has(f.target!);
+    })
+    .map((f) => ({ field: f.name, target: f.targetCollection || f.target! }));
 
   if (missingTargets.length > 0) {
     const targetList = missingTargets.map((t) => `"${t.target}" (field: ${t.field})`).join(', ');

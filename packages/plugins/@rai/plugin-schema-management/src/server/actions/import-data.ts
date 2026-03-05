@@ -72,6 +72,10 @@ export async function importData(ctx: Context, next: Next) {
         parseErrors.push(`Line ${i + 1}: Expected a JSON object`);
         continue;
       }
+      // Strip internal metadata fields injected by raw Sequelize queries (e.g. __tableName, __collection)
+      for (const key of Object.keys(record)) {
+        if (key.startsWith('__')) delete record[key];
+      }
       records.push(record);
     } catch (err: any) {
       parseErrors.push(`Line ${i + 1}: Invalid JSON - ${err.message}`);

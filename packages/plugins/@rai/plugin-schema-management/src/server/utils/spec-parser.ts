@@ -29,6 +29,12 @@ export interface FieldSchema {
   field?: string;
   target?: string;
   foreignKey?: string;
+  /** Internal collection name of the relation target (e.g. t_xxx). Used during migration to preserve exact names. */
+  targetCollection?: string;
+  /** For belongsToMany: the other FK column in the junction table */
+  otherKey?: string;
+  /** For belongsToMany: the junction table name */
+  through?: string;
   expression?: string;
   precision?: number;
   scale?: number;
@@ -263,6 +269,8 @@ export function parseOpenAPISpec(yamlContent: string): ParsedSpec {
         type: 'belongsTo',
         interface: 'obo',
         target: prop['x-belongs-to'] as string,
+        ...(prop['x-target-collection'] && { targetCollection: prop['x-target-collection'] as string }),
+        ...(prop['x-foreign-key'] && { foreignKey: prop['x-foreign-key'] as string }),
         ...baseProps,
         uiSchema: { title, 'x-component': 'AssociationField' },
       };
@@ -273,6 +281,8 @@ export function parseOpenAPISpec(yamlContent: string): ParsedSpec {
         type: 'hasOne',
         interface: 'o2o',
         target: prop['x-has-one'] as string,
+        ...(prop['x-target-collection'] && { targetCollection: prop['x-target-collection'] as string }),
+        ...(prop['x-foreign-key'] && { foreignKey: prop['x-foreign-key'] as string }),
         ...baseProps,
         uiSchema: { title, 'x-component': 'AssociationField' },
       };
@@ -283,6 +293,8 @@ export function parseOpenAPISpec(yamlContent: string): ParsedSpec {
         type: 'hasMany',
         interface: 'o2m',
         target: prop['x-has-many'] as string,
+        ...(prop['x-target-collection'] && { targetCollection: prop['x-target-collection'] as string }),
+        ...(prop['x-foreign-key'] && { foreignKey: prop['x-foreign-key'] as string }),
         ...baseProps,
         uiSchema: { title, 'x-component': 'AssociationField' },
       };
@@ -293,6 +305,10 @@ export function parseOpenAPISpec(yamlContent: string): ParsedSpec {
         type: 'belongsToMany',
         interface: 'm2m',
         target: prop['x-belongs-to-many'] as string,
+        ...(prop['x-target-collection'] && { targetCollection: prop['x-target-collection'] as string }),
+        ...(prop['x-foreign-key'] && { foreignKey: prop['x-foreign-key'] as string }),
+        ...(prop['x-other-key'] && { otherKey: prop['x-other-key'] as string }),
+        ...(prop['x-through'] && { through: prop['x-through'] as string }),
         ...baseProps,
         uiSchema: { title, 'x-component': 'AssociationField' },
       };

@@ -12,6 +12,10 @@ interface OpenAPIPropertySchema {
   'x-has-one'?: string;
   'x-has-many'?: string;
   'x-belongs-to-many'?: string;
+  'x-target-collection'?: string;
+  'x-foreign-key'?: string;
+  'x-other-key'?: string;
+  'x-through'?: string;
   'x-nocobase-type'?: string;
   'x-unique'?: boolean;
   'x-expression'?: string;
@@ -197,11 +201,15 @@ export function mapFieldToOpenAPI(field: Field, context?: FieldMapperContext): O
 
     // Relation types - use x-* extensions with human-readable target titles
     // Include type info so schema can validate JSON (string for single, array for many)
+    // x-target-collection preserves the internal collection name for migration
+    // x-foreign-key preserves the FK column name for migration
     case 'belongsTo': {
       const targetName = options.target || 'related record';
       const targetTitle = context?.collectionTitleMap?.get(targetName) || targetName;
       schema.type = 'string';
       schema['x-belongs-to'] = targetTitle;
+      schema['x-target-collection'] = targetName;
+      if (options.foreignKey) schema['x-foreign-key'] = options.foreignKey;
       break;
     }
 
@@ -210,6 +218,8 @@ export function mapFieldToOpenAPI(field: Field, context?: FieldMapperContext): O
       const targetTitle = context?.collectionTitleMap?.get(targetName) || targetName;
       schema.type = 'string';
       schema['x-has-one'] = targetTitle;
+      schema['x-target-collection'] = targetName;
+      if (options.foreignKey) schema['x-foreign-key'] = options.foreignKey;
       break;
     }
 
@@ -219,6 +229,8 @@ export function mapFieldToOpenAPI(field: Field, context?: FieldMapperContext): O
       schema.type = 'array';
       schema.items = { type: 'string' };
       schema['x-has-many'] = targetTitle;
+      schema['x-target-collection'] = targetName;
+      if (options.foreignKey) schema['x-foreign-key'] = options.foreignKey;
       break;
     }
 
@@ -228,6 +240,10 @@ export function mapFieldToOpenAPI(field: Field, context?: FieldMapperContext): O
       schema.type = 'array';
       schema.items = { type: 'string' };
       schema['x-belongs-to-many'] = targetTitle;
+      schema['x-target-collection'] = targetName;
+      if (options.foreignKey) schema['x-foreign-key'] = options.foreignKey;
+      if (options.otherKey) schema['x-other-key'] = options.otherKey;
+      if (options.through) schema['x-through'] = typeof options.through === 'string' ? options.through : options.through?.name;
       break;
     }
 

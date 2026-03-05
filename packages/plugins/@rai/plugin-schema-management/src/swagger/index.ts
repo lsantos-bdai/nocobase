@@ -42,7 +42,7 @@ export default {
         tags: ['schema-management'],
         summary: 'Generate OpenAPI YAML schema for a collection',
         description:
-          'Generates an OpenAPI 3.1.0 specification in YAML for a collection. Accepts the internal collection name or human-readable title. Use this output as input to the import or migrate endpoints.',
+          'Generates an OpenAPI 3.1.0 specification in YAML for a collection. Accepts the internal collection name or human-readable title. Use this output as input to the import or migrate endpoints.\n\nRelation fields include migration metadata:\n- `x-target-collection`: internal collection name of the relation target (e.g. `t_xxx`)\n- `x-foreign-key`: internal FK column name (e.g. `f_xxx`)\n- `x-other-key`: (belongsToMany only) other FK column in the junction table\n- `x-through`: (belongsToMany only) junction table name',
         parameters: [
           {
             name: 'collection',
@@ -78,6 +78,22 @@ components:
           enum:
             - active
             - inactive
+        workstation:
+          description: Work Station
+          type: string
+          x-belongs-to: WorkStation
+          x-target-collection: t_9dx8b5vb55b
+          x-foreign-key: f_l1rztrt2cwq
+        cameras:
+          description: Cameras
+          type: array
+          items:
+            type: string
+          x-belongs-to-many: Camera
+          x-target-collection: t_zldxcwpdr9g
+          x-foreign-key: f_abc123def
+          x-other-key: f_def456abc
+          x-through: t_junction789
       required:
         - id
         - name`,
@@ -111,7 +127,7 @@ components:
         tags: ['schema-management'],
         summary: 'Create a collection from an OpenAPI YAML spec',
         description:
-          'Creates a new collection and its fields from an OpenAPI YAML spec. Automatically adds preset fields (createdAt, updatedAt, createdBy, updatedBy). Fails if the collection already exists or if relation target collections are missing.',
+          'Creates a new collection and its fields from an OpenAPI YAML spec. Automatically adds preset fields (createdAt, updatedAt, createdBy, updatedBy). Fails if the collection already exists or if relation target collections are missing.\n\nRelation fields in the spec may include migration metadata (`x-target-collection`, `x-foreign-key`, `x-other-key`, `x-through`) to preserve exact internal names from the source server. When present, these override the auto-generated names that NocoBase would otherwise assign.',
         requestBody: {
           required: true,
           content: {
