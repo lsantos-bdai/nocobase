@@ -78,3 +78,43 @@ export interface DeleteResponse {
   path: string;
   flowModelsDeleted: number;
 }
+
+/**
+ * Block template types — for cross-server template migration.
+ *
+ * Targets the Gen 3 template system: flowModelTemplates + flowModels.
+ */
+
+/**
+ * Template metadata from the flowModelTemplates table.
+ */
+export interface TemplateRecord {
+  uid: string;
+  name: string;
+  description?: string;
+  targetUid: string;
+  useModel?: string;
+  type?: string;
+  dataSourceKey?: string;
+  collectionName?: string;
+  associationName?: string;
+  filterByTk?: string;
+  sourceId?: string;
+}
+
+/**
+ * A complete template export — metadata + full flowModel tree.
+ */
+export interface TemplateSnapshot {
+  template: TemplateRecord;
+  model: Record<string, unknown>;
+}
+
+/**
+ * Response from the importTemplates endpoint.
+ */
+export interface TemplateImportResponse {
+  imported: boolean;
+  uid: string;
+  name: string;
+}

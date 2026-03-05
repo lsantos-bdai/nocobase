@@ -11,6 +11,10 @@ export default {
       name: 'ui-snapshot',
       description: 'Lossless UI page export and import',
     },
+    {
+      name: 'ui-snapshot-templates',
+      description: 'Block template export and import for cross-server migration',
+    },
   ],
   components: {
     schemas: {
@@ -50,6 +54,44 @@ export default {
             type: 'array',
             items: { type: 'string' },
           },
+        },
+      },
+      TemplateRecord: {
+        type: 'object',
+        description: 'Block template metadata from flowModelTemplates table',
+        required: ['uid', 'name', 'targetUid'],
+        properties: {
+          uid: { type: 'string', description: 'Primary key (template UID)' },
+          name: { type: 'string', description: 'Human-readable template name' },
+          description: { type: 'string', description: 'Template description' },
+          targetUid: { type: 'string', description: 'Root flowModel UID of the template content tree' },
+          useModel: { type: 'string', description: 'FlowModel class name (e.g., TableBlockModel, DetailsBlockModel)' },
+          type: { type: 'string', description: 'Template type: "popup" or null for block templates' },
+          dataSourceKey: { type: 'string', description: 'Data source key (e.g., main)' },
+          collectionName: { type: 'string', description: 'Collection internal name (e.g., t_xxx)' },
+          associationName: { type: 'string', description: 'Association path if template is from an association block' },
+          filterByTk: { type: 'string', description: 'Filter by target key' },
+          sourceId: { type: 'string', description: 'Source identifier' },
+        },
+      },
+      TemplateSnapshot: {
+        type: 'object',
+        description: 'Complete template export — metadata + full flowModel tree',
+        required: ['template', 'model'],
+        properties: {
+          template: { $ref: '#/components/schemas/TemplateRecord' },
+          model: {
+            type: 'object',
+            description: 'Full flowModel tree with preserved UIDs',
+          },
+        },
+      },
+      TemplateImportResponse: {
+        type: 'object',
+        properties: {
+          imported: { type: 'boolean' },
+          uid: { type: 'string' },
+          name: { type: 'string' },
         },
       },
       CreateResponse: {
@@ -153,6 +195,60 @@ export default {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/PageSnapshot' } } },
           },
           404: { description: 'Page not found' },
+        },
+      },
+    },
+    '/ui-snapshot:exportTemplates': {
+      get: {
+        tags: ['ui-snapshot-templates'],
+        summary: 'Export all block templates',
+        description:
+          'Exports all block templates (flowModelTemplates) with their full flowModel trees. ' +
+          'Each template includes its metadata record and the complete flowModel subtree. ' +
+          'Original UIDs are preserved for cross-server migration so that ' +
+          'ReferenceBlockModel pointers in UI page snapshots resolve correctly.',
+        responses: {
+          200: {
+            description: 'Array of template snapshots',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/TemplateSnapshot' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/ui-snapshot:importTemplates': {
+      post: {
+        tags: ['ui-snapshot-templates'],
+        summary: 'Import a block template',
+        description:
+          'Imports a single block template with its full flowModel tree. ' +
+          'Always overwrites: if a template with the same uid exists, the old flowModel tree ' +
+          'and template record are removed first. Original UIDs are preserved so that ' +
+          'ReferenceBlockModel pointers from UI page snapshots resolve correctly on the target.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/TemplateSnapshot' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Template imported',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/TemplateImportResponse' },
+              },
+            },
+          },
+          400: { description: 'Missing required fields' },
         },
       },
     },
