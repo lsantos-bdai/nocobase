@@ -28,5 +28,6 @@ export async function listCollections(ctx: Context, next: Next) {
   result.sort((a, b) => a.title.localeCompare(b.title));
 
   ctx.body = result;
+  ctx.withoutDataWrapping = true;
   await next();
 }

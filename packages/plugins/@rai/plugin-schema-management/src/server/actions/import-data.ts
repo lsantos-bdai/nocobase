@@ -144,6 +144,7 @@ export async function importData(ctx: Context, next: Next) {
       errors: parseErrors.slice(0, 10),
       warnings: parseErrors.length > 10 ? [`... and ${parseErrors.length - 10} more parse errors`] : [],
     } satisfies ImportResult;
+    ctx.withoutDataWrapping = true;
     await next();
     return;
   }
@@ -264,5 +265,6 @@ export async function importData(ctx: Context, next: Next) {
   }
 
   ctx.body = result;
+  ctx.withoutDataWrapping = true;
   await next();
 }

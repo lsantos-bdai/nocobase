@@ -25,7 +25,7 @@ export function PlatformsTable() {
         url: 'databridge_platforms:list',
         method: 'get',
       });
-      setPlatforms(response?.data?.data || []);
+      setPlatforms(response?.data || []);
     } catch (err) {
       console.error('Failed to fetch platforms:', err);
       setPlatforms([]);
@@ -81,7 +81,7 @@ export function PlatformsTable() {
         url: `databridge_platforms:syncAll?platform=${platform.id}`,
         method: 'post',
       });
-      const { synced, collections, errors } = res?.data?.data || {};
+      const { synced, collections, errors } = res?.data || {};
       if (errors && errors.length > 0) {
         // Store result and open modal to show detailed errors
         setSyncResult({ synced, collections, errors });

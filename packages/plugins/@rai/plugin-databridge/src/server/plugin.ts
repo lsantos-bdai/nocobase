@@ -55,6 +55,12 @@ export class PluginDatabridgeServer extends Plugin {
     });
 
     // Register custom actions for databridge_platforms (overrides default)
+    this.app.resourceManager.registerActionHandler('databridge_platforms:list', async (ctx: any, next: any) => {
+      const repo = ctx.db.getRepository('databridge_platforms');
+      ctx.body = await repo.find();
+      ctx.withoutDataWrapping = true;
+      await next();
+    });
     this.app.resourceManager.registerActionHandler('databridge_platforms:get', getPlatform as any);
     this.app.resourceManager.registerActionHandler('databridge_platforms:create', createPlatform as any);
     this.app.resourceManager.registerActionHandler('databridge_platforms:add', addPlatformCollections as any);

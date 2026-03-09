@@ -23,8 +23,9 @@ export async function viewPlatform(ctx: Context, next: Next) {
 
   ctx.body = {
     data: entries,
-    meta: { page, pageSize, total },
+    meta: { page: Number(page), pageSize: Number(pageSize), total },
   };
 
+  ctx.withoutDataWrapping = true;
   await next();
 }

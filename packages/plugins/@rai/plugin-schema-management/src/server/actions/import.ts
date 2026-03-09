@@ -70,6 +70,7 @@ export async function importSpec(ctx: Context, next: Next) {
       fieldsSkipped: [],
       warnings: [],
     };
+    ctx.withoutDataWrapping = true;
     return await next();
   }
 
@@ -112,6 +113,7 @@ export async function importSpec(ctx: Context, next: Next) {
       fieldsSkipped: [],
       warnings: [],
     };
+    ctx.withoutDataWrapping = true;
     return await next();
   }
 
@@ -125,6 +127,7 @@ export async function importSpec(ctx: Context, next: Next) {
       fieldsSkipped: [],
       warnings: [],
     };
+    ctx.withoutDataWrapping = true;
     return await next();
   }
 
@@ -135,6 +138,7 @@ export async function importSpec(ctx: Context, next: Next) {
   result.warnings = [...systemFieldWarnings, ...result.warnings];
 
   ctx.body = result;
+  ctx.withoutDataWrapping = true;
   await next();
 }
 

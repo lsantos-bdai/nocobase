@@ -11,5 +11,6 @@ export async function getPlatform(ctx: Context, next: Next) {
   const platformRecord = await getPlatformOrThrow(ctx, platformIdentifier);
 
   ctx.body = platformRecord;
+  ctx.withoutDataWrapping = true;
   await next();
 }

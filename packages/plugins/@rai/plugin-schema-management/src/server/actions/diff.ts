@@ -194,5 +194,6 @@ export async function diff(ctx: Context, next: Next) {
     ctx.throw(400, `Diff failed: ${error.message}`);
   }
 
+  ctx.withoutDataWrapping = true;
   await next();
 }

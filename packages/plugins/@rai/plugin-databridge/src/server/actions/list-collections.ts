@@ -48,5 +48,6 @@ export async function listCollections(ctx: Context, next: Next) {
   });
 
   ctx.body = result;
+  ctx.withoutDataWrapping = true;
   await next();
 }

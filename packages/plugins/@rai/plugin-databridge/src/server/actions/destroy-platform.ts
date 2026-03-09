@@ -19,5 +19,6 @@ export async function destroyPlatform(ctx: Context, next: Next) {
   await ctx.db.getRepository('databridge_platforms').destroy({ filterByTk: platformRecord.id });
 
   ctx.body = { success: true };
+  ctx.withoutDataWrapping = true;
   await next();
 }

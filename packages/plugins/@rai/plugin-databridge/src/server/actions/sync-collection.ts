@@ -40,5 +40,6 @@ export async function syncCollection(ctx: Context, next: Next) {
     errors: errors.length > 0 ? errors : undefined,
   };
 
+  ctx.withoutDataWrapping = true;
   await next();
 }

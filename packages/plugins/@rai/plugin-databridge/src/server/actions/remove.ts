@@ -29,5 +29,6 @@ export async function removePlatformCollections(ctx: Context, next: Next) {
   await updateRegisteredCollections(ctx, platformIdentifier, [], collections);
 
   ctx.body = { removed, collections: collections.length };
+  ctx.withoutDataWrapping = true;
   await next();
 }

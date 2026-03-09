@@ -26,7 +26,7 @@ export function ViewModal({ open, platform, onClose }: ViewModalProps) {
           url: `databridge_platforms:view?platform=${platform.id}&page=${page}&pageSize=${pageSize}`,
           method: 'get',
         });
-        const responseBody = res?.data?.data || {};
+        const responseBody = res?.data || {};
         const data = responseBody.data;
         const meta = responseBody.meta;
         setEntries(Array.isArray(data) ? data : []);

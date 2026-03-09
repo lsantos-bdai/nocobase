@@ -92,5 +92,6 @@ export async function addPlatformCollections(ctx: Context, next: Next) {
   }
 
   ctx.body = { synced, collections: collections.length };
+  ctx.withoutDataWrapping = true;
   await next();
 }

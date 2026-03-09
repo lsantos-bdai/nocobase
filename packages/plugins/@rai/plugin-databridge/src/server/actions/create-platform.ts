@@ -70,5 +70,6 @@ export async function createPlatform(ctx: Context, next: Next) {
   });
 
   ctx.body = platform;
+  ctx.withoutDataWrapping = true;
   await next();
 }

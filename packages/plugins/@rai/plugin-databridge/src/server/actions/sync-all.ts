@@ -18,6 +18,7 @@ export async function syncAll(ctx: Context, next: Next) {
 
   if (collectionNames.length === 0) {
     ctx.body = { synced: 0, collections: 0 };
+    ctx.withoutDataWrapping = true;
     await next();
     return;
   }
@@ -58,5 +59,6 @@ export async function syncAll(ctx: Context, next: Next) {
     errors: allErrors.length > 0 ? allErrors : undefined,
   };
 
+  ctx.withoutDataWrapping = true;
   await next();
 }

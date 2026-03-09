@@ -27,7 +27,7 @@ export function CollectionSelector({ selectedCollection, onSelect }: CollectionS
         url: 'schema-management:listCollections',
         method: 'get',
       });
-      setCollections(response?.data?.data || []);
+      setCollections(response?.data || []);
     } catch (err) {
       console.error('Failed to fetch collections:', err);
       setCollections([]);

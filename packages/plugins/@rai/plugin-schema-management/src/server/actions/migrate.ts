@@ -212,6 +212,7 @@ export async function migrate(ctx: Context, next: Next) {
       }
 
       ctx.body = result;
+      ctx.withoutDataWrapping = true;
       return await next();
     }
 
@@ -223,6 +224,7 @@ export async function migrate(ctx: Context, next: Next) {
         result.errors.push('Imported data does not satisfy the new schema constraints:');
         result.errors.push(...dataValidation.errors);
         ctx.body = result;
+        ctx.withoutDataWrapping = true;
         return await next();
       }
       parsedRecords = dataValidation.records;
@@ -234,6 +236,7 @@ export async function migrate(ctx: Context, next: Next) {
     if (parseErrors.length > 0) {
       result.errors = parseErrors;
       ctx.body = result;
+      ctx.withoutDataWrapping = true;
       return await next();
     }
 
@@ -394,6 +397,7 @@ export async function migrate(ctx: Context, next: Next) {
   }
 
   ctx.body = result;
+  ctx.withoutDataWrapping = true;
   await next();
 }
 
