@@ -24,6 +24,8 @@
     "start": "nocobase start",
     "build": "nocobase build",
     "tar": "nocobase tar",
+    "build:dashboard": "nocobase build @rai/plugin-dashboard --no-dts",
+    "tar:dashboard": "nocobase tar @rai/plugin-dashboard",
     "test": "nocobase test",
     "test:server": "nocobase test:server",
     "test:server-coverage": "nocobase test-coverage:server",
