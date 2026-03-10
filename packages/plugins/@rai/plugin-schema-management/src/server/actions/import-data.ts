@@ -1,4 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
+import { resolveCollection } from '../utils';
 
 interface ImportRequest {
   collection: string;
@@ -111,23 +112,9 @@ export async function importData(ctx: Context, next: Next) {
     ctx.throw(400, 'data parameter is required and must be a string');
   }
 
-  // Resolve collection name (could be title)
-  let collection = ctx.db.getCollection(collectionName);
-  let resolvedName = collectionName;
-
-  if (!collection) {
-    const collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { title: collectionName },
-    });
-    if (collMeta) {
-      collection = ctx.db.getCollection(collMeta.name);
-      resolvedName = collMeta.name;
-    }
-  }
-
-  if (!collection) {
-    ctx.throw(404, `Collection '${collectionName}' not found`);
-  }
+  // Resolve collection (case-insensitive title matching, 409 on ambiguity)
+  const { resolvedName } = await resolveCollection(ctx, collectionName);
+  const collection = ctx.db.getCollection(resolvedName)!;
 
   const repository = ctx.db.getRepository(resolvedName);
 

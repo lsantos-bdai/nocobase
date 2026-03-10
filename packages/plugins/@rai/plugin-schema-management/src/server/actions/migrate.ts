@@ -7,6 +7,7 @@ import {
   parseOpenAPISpec,
   mapFieldToOpenAPI,
   normalizeFieldName,
+  resolveCollection,
   type ClassifiedChange,
   type FieldMapperContext,
   type FieldSchema,
@@ -53,28 +54,8 @@ interface DataValidationResult {
  * Generate current OpenAPI spec for diffing
  */
 async function generateCurrentSpec(ctx: Context, collectionName: string): Promise<string> {
-  let collection = ctx.db.getCollection(collectionName);
-  let collMeta;
-
-  if (!collection) {
-    collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { title: collectionName },
-    });
-    if (collMeta) {
-      collection = ctx.db.getCollection(collMeta.name);
-    }
-  }
-
-  if (!collection) {
-    throw new Error(`Collection '${collectionName}' not found`);
-  }
-
-  if (!collMeta) {
-    collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { name: collection.name },
-    });
-  }
-  const title = collMeta?.title || collectionName;
+  const { resolvedName, collectionTitle: title } = await resolveCollection(ctx, collectionName);
+  const collection = ctx.db.getCollection(resolvedName)!;
 
   const allCollections = await ctx.db.getRepository('collections').find({
     fields: ['name', 'title'],
@@ -152,24 +133,9 @@ export async function migrate(ctx: Context, next: Next) {
     ctx.throw(400, 'spec parameter is required (YAML string)');
   }
 
-  // Resolve collection
-  let collection = ctx.db.getCollection(collectionName);
-  let resolvedName = collectionName;
-  let collMeta;
-
-  if (!collection) {
-    collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { title: collectionName },
-    });
-    if (collMeta) {
-      collection = ctx.db.getCollection(collMeta.name);
-      resolvedName = collMeta.name;
-    }
-  }
-
-  if (!collection) {
-    ctx.throw(404, `Collection '${collectionName}' not found`);
-  }
+  // Resolve collection (case-insensitive title matching, 409 on ambiguity)
+  const { resolvedName } = await resolveCollection(ctx, collectionName);
+  const collection = ctx.db.getCollection(resolvedName)!;
 
   const result: MigrateResponse = {
     success: false,

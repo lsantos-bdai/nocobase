@@ -1,4 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
+import { resolveCollection } from '../utils';
 
 interface ExportRequest {
   collection: string;
@@ -137,43 +138,6 @@ async function streamCollectionData(
 }
 
 /**
- * Resolve a collection by name or title. Returns { collection, resolvedName, collectionTitle }
- * or throws 404 if not found.
- */
-async function resolveCollection(
-  ctx: Context,
-  collectionName: string,
-): Promise<{ collection: any; resolvedName: string; collectionTitle: string }> {
-  let collection = ctx.db.getCollection(collectionName);
-  let resolvedName = collectionName;
-  let collectionTitle = collectionName;
-
-  if (!collection) {
-    const collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { title: collectionName },
-    });
-    if (collMeta) {
-      collection = ctx.db.getCollection(collMeta.name);
-      resolvedName = collMeta.name;
-      collectionTitle = collMeta.title;
-    }
-  } else {
-    const collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { name: collection.name },
-    });
-    if (collMeta?.title) {
-      collectionTitle = collMeta.title;
-    }
-  }
-
-  if (!collection) {
-    ctx.throw(404, `Collection '${collectionName}' not found`);
-  }
-
-  return { collection, resolvedName, collectionTitle };
-}
-
-/**
  * Export action - stream collection data as JSON Lines
  *
  * POST /api/schema-management:export
@@ -192,7 +156,8 @@ export async function exportData(ctx: Context, next: Next) {
     ctx.throw(400, 'collection parameter is required');
   }
 
-  const { collection, resolvedName, collectionTitle } = await resolveCollection(ctx, collectionName);
+  const { resolvedName, collectionTitle } = await resolveCollection(ctx, collectionName);
+  const collection = ctx.db.getCollection(resolvedName)!;
 
   // Determine which fields to export
   let fieldsToExport: string[] | undefined;
@@ -250,7 +215,8 @@ export async function exportDataGet(ctx: Context, next: Next) {
     requestedFields = typeof fields === 'string' ? fields.split(',').map((f: string) => f.trim()) : fields;
   }
 
-  const { collection, resolvedName, collectionTitle } = await resolveCollection(ctx, collectionName);
+  const { resolvedName, collectionTitle } = await resolveCollection(ctx, collectionName);
+  const collection = ctx.db.getCollection(resolvedName)!;
 
   // Validate requested fields
   if (requestedFields && requestedFields.length > 0) {

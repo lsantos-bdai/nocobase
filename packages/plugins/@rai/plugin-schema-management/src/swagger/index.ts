@@ -6,6 +6,7 @@ export default {
   paths: {
     '/schema-management:listCollections': {
       get: {
+        operationId: 'listSchemaCollections',
         tags: ['schema-management'],
         summary: 'List collections available for schema operations',
         description:
@@ -39,6 +40,7 @@ export default {
 
     '/schema-management:generate': {
       get: {
+        operationId: 'generateSchema',
         tags: ['schema-management'],
         summary: 'Generate OpenAPI YAML schema for a collection',
         description:
@@ -49,7 +51,8 @@ export default {
             in: 'query',
             required: true,
             schema: { type: 'string', example: 'Arm Station' },
-            description: 'Internal collection name or human-readable title.',
+            description:
+              'Internal collection name or human-readable title. Matching is case-insensitive. Returns 409 if the title matches multiple collections.',
           },
         ],
         responses: {
@@ -118,12 +121,14 @@ components:
               },
             },
           },
+          409: { description: 'Ambiguous collection title — matches multiple collections', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
 
     '/schema-management:import': {
       post: {
+        operationId: 'importSchema',
         tags: ['schema-management'],
         summary: 'Create a collection from an OpenAPI YAML spec',
         description:
@@ -167,6 +172,7 @@ components:
 
     '/schema-management:diff': {
       post: {
+        operationId: 'diffSchema',
         tags: ['schema-management'],
         summary: 'Compare current schema against a proposed new spec',
         description:
@@ -181,7 +187,8 @@ components:
                 properties: {
                   collection: {
                     type: 'string',
-                    description: 'Internal collection name or human-readable title.',
+                    description:
+                      'Internal collection name or human-readable title. Matching is case-insensitive. Returns 409 if the title matches multiple collections.',
                     example: 'Arm Station',
                   },
                   spec: {
@@ -220,12 +227,14 @@ components:
           },
           400: { description: 'Missing collection or spec parameter', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
           404: { description: 'Collection not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          409: { description: 'Ambiguous collection title — matches multiple collections', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
 
     '/schema-management:migrate': {
       post: {
+        operationId: 'migrateSchema',
         tags: ['schema-management'],
         summary: 'Apply schema changes to an existing collection',
         description:
@@ -240,7 +249,8 @@ components:
                 properties: {
                   collection: {
                     type: 'string',
-                    description: 'Internal collection name or human-readable title.',
+                    description:
+                      'Internal collection name or human-readable title. Matching is case-insensitive. Returns 409 if the title matches multiple collections.',
                     example: 'Arm Station',
                   },
                   spec: {
@@ -287,12 +297,14 @@ components:
             },
           },
           404: { description: 'Collection not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          409: { description: 'Ambiguous collection title — matches multiple collections', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
 
     '/schema-management:export': {
       post: {
+        operationId: 'exportData',
         tags: ['schema-management'],
         summary: 'Export collection data as JSON Lines (POST)',
         description:
@@ -307,7 +319,8 @@ components:
                 properties: {
                   collection: {
                     type: 'string',
-                    description: 'Internal collection name or human-readable title.',
+                    description:
+                      'Internal collection name or human-readable title. Matching is case-insensitive. Returns 409 if the title matches multiple collections.',
                     example: 'Arm Station',
                   },
                   fields: {
@@ -333,12 +346,14 @@ components:
           },
           400: { description: 'Missing collection or unknown field names', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
           404: { description: 'Collection not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          409: { description: 'Ambiguous collection title — matches multiple collections', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
 
     '/schema-management:exportGet': {
       get: {
+        operationId: 'exportDataGet',
         tags: ['schema-management'],
         summary: 'Export collection data as JSON Lines (GET)',
         description:
@@ -349,7 +364,8 @@ components:
             in: 'query',
             required: true,
             schema: { type: 'string', example: 'Arm Station' },
-            description: 'Internal collection name or human-readable title.',
+            description:
+              'Internal collection name or human-readable title. Matching is case-insensitive. Returns 409 if the title matches multiple collections.',
           },
           {
             name: 'fields',
@@ -371,12 +387,14 @@ components:
           },
           400: { description: 'Missing collection or unknown field names', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
           404: { description: 'Collection not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          409: { description: 'Ambiguous collection title — matches multiple collections', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
 
     '/schema-management:importData': {
       post: {
+        operationId: 'importData',
         tags: ['schema-management'],
         summary: 'Import JSON Lines data into a collection',
         description:
@@ -391,7 +409,8 @@ components:
                 properties: {
                   collection: {
                     type: 'string',
-                    description: 'Internal collection name or human-readable title.',
+                    description:
+                      'Internal collection name or human-readable title. Matching is case-insensitive. Returns 409 if the title matches multiple collections.',
                     example: 'Arm Station',
                   },
                   data: {
@@ -429,6 +448,7 @@ components:
           },
           400: { description: 'Missing collection or data parameter', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
           404: { description: 'Collection not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          409: { description: 'Ambiguous collection title — matches multiple collections', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },

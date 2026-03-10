@@ -1,6 +1,6 @@
 import { Context, Next } from '@nocobase/actions';
 import { Collection, Field } from '@nocobase/database';
-import { getPlatformBySlugOrThrow, getCollectionTitles } from '../utils';
+import { getPlatformBySlugOrThrow, getCollectionTitles, resolveCollection } from '../utils';
 
 /**
  * Text field types that support $includes search
@@ -151,24 +151,7 @@ export async function search(ctx: Context, next: Next) {
   // Resolve collection filter if provided
   let collectionFilter: string | null = null;
   if (collection) {
-    // Check if it's already an internal collection name
-    if (registeredCollections.includes(collection)) {
-      collectionFilter = collection;
-    } else {
-      // Try to find by title (case-insensitive)
-      const collectionLower = collection.toLowerCase();
-      const collectionRecords = await ctx.db.getRepository('collections').find({
-        filter: { name: { $in: registeredCollections } },
-        fields: ['name', 'title'],
-      });
-      const matchedCollection = collectionRecords.find(
-        (c: any) => c.title?.toLowerCase() === collectionLower || c.name.toLowerCase() === collectionLower
-      );
-      if (!matchedCollection) {
-        ctx.throw(404, `Collection '${collection}' not found in platform '${platform}'`);
-      }
-      collectionFilter = matchedCollection.name;
-    }
+    collectionFilter = await resolveCollection(ctx, platformRecord, collection);
   }
 
   const collectionsToSearch = collectionFilter ? [collectionFilter] : registeredCollections;

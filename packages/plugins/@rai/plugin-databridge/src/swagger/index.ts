@@ -19,44 +19,36 @@ export default {
     schemas: {
       AssetData: {
         type: 'object',
-        properties: {
-          id: {
-            oneOf: [{ type: 'integer' }, { type: 'string' }],
-            description: 'Record ID - REQUIRED for update/delete, auto-generated for create',
-          },
-          name: {
-            type: 'string',
-            description: 'Asset name - REQUIRED, must be unique within platform',
-          },
-        },
-        required: ['name'],
         additionalProperties: true,
-        description: 'Asset data containing record fields',
+        description:
+          'Asset data as a flat key-value object. All collection fields are top-level properties. There are no fixed properties — the shape depends on the collection schema. Common conventions: "name" (string, unique asset identifier within platform), "id" (integer, auto-generated record ID).',
       },
       AssetPayload: {
         type: 'object',
         properties: {
           platform: {
             type: 'string',
-            description: 'Platform slug (e.g., "models", "inventory") - REQUIRED',
+            description: 'Platform slug (e.g., "models", "inventory") — REQUIRED for all operations.',
             example: 'models',
           },
           collection: {
             type: 'string',
-            description: 'Internal collection name (e.g., "t_98x374ie2j7") - REQUIRED',
-            example: 't_98x374ie2j7',
+            description:
+              'Collection name or title. Accepts the internal name (e.g., "t_98x374ie2j7") or the human-readable title (e.g., "ArmStation") — matching is case-insensitive. REQUIRED for create. Optional for update/delete (derived from the platform lookup table). Returns 409 if the title matches multiple collections within the platform.',
+            example: 'ArmStation',
           },
           collection_title: {
             type: 'string',
-            description: 'Human-readable collection title (e.g., "ArmStation") - OPTIONAL for input',
+            description: 'Human-readable collection title — present in responses, ignored in requests.',
             example: 'ArmStation',
           },
           data: {
             $ref: '#/components/schemas/AssetData',
           },
         },
-        required: ['platform', 'collection', 'data'],
-        description: 'Payload for a single asset, including platform and collection context',
+        required: ['platform'],
+        description:
+          'Payload for a single asset. Field requirements vary by operation:\n- **bulkCreate**: `platform`, `collection`, and `data` (with `name`) are all required.\n- **bulkUpdate**: `platform` and `data` required; `collection` is optional (derived from lookup).\n- **bulkDelete**: only `platform` required; `collection` and `data` are optional (derived from lookup).',
       },
       AssetPayloadMap: {
         type: 'object',
@@ -67,8 +59,7 @@ export default {
         example: {
           'Station 3': {
             platform: 'models',
-            collection: 't_98x374ie2j7',
-            collection_title: 'ArmStation',
+            collection: 'ArmStation',
             data: {
               id: 3,
               name: 'Station 3',
@@ -79,8 +70,7 @@ export default {
           },
           IRS022: {
             platform: 'models',
-            collection: 't_abc123',
-            collection_title: 'RealsenseCamera',
+            collection: 'RealsenseCamera',
             data: {
               id: 42,
               name: 'IRS022',
@@ -133,6 +123,7 @@ export default {
   paths: {
     '/databridge:get': {
       get: {
+        operationId: 'getAssets',
         tags: ['databridge'],
         summary: 'Get assets by platform and name(s)',
         description:
@@ -194,6 +185,7 @@ export default {
     },
     '/databridge:search': {
       get: {
+        operationId: 'searchAssets',
         tags: ['databridge'],
         summary: 'Search assets across collections',
         description:
@@ -218,7 +210,8 @@ export default {
             in: 'query',
             required: false,
             schema: { type: 'string' },
-            description: 'Limit search to a specific collection (accepts internal name or title)',
+            description:
+              'Limit search to a specific collection. Accepts internal name (e.g., "t_98x374ie2j7") or human-readable title (e.g., "ArmStation") — matching is case-insensitive. Returns 409 if the title matches multiple collections within the platform.',
           },
           {
             name: 'limit',
@@ -247,11 +240,13 @@ export default {
           },
           400: { description: 'Missing required parameters' },
           404: { description: 'Platform or collection not found' },
+          409: { description: 'Ambiguous collection title — matches multiple collections within the platform' },
         },
       },
     },
     '/databridge:list': {
       get: {
+        operationId: 'listCollections',
         tags: ['databridge'],
         summary: 'List collections in a platform',
         description: 'Returns a list of all collections registered in a platform with their names and titles.',
@@ -289,6 +284,7 @@ export default {
     },
     '/databridge:index': {
       get: {
+        operationId: 'indexAssets',
         tags: ['databridge'],
         summary: 'Index all asset names by collection',
         description:
@@ -325,10 +321,11 @@ export default {
     },
     '/databridge:bulkUpdate': {
       post: {
+        operationId: 'bulkUpdate',
         tags: ['databridge'],
         summary: 'Bulk update assets using unified AssetPayloadMap format',
         description:
-          'Update one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request. All operations are ACID - the entire batch succeeds or fails atomically. The `data.id` field is REQUIRED to identify the record to update.',
+          'Update one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nThe `collection` field is optional — if omitted, the collection is derived from the platform lookup table. When provided, it accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections.\n\nThe `data.id` field is not required — the record is identified by the asset name (the map key) via the platform lookup table.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
@@ -337,10 +334,8 @@ export default {
               example: {
                 'Station 1': {
                   platform: 'models',
-                  collection: 't_98x374ie2j7',
-                  collection_title: 'ArmStation',
+                  collection: 'ArmStation',
                   data: {
-                    id: 1,
                     name: 'Station 1',
                     left_gpu: 'WS63',
                     right_gpu: 'WS64',
@@ -348,9 +343,7 @@ export default {
                 },
                 IRS026: {
                   platform: 'inventory',
-                  collection: 't_abc123',
                   data: {
-                    id: 26,
                     name: 'IRS026',
                     serial_number: '999999',
                   },
@@ -382,25 +375,27 @@ export default {
               },
             },
           },
-          400: { description: 'Invalid request format or missing data.id' },
+          400: { description: 'Invalid request format' },
           404: { description: 'Platform or asset not found' },
           422: {
-            description: 'Validation failed (relation not found, type mismatch, etc.)',
+            description: 'Validation failed (relation not found, type mismatch, collection mismatch, etc.)',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
               },
             },
           },
+          409: { description: 'Ambiguous collection title — matches multiple collections within the platform' },
         },
       },
     },
     '/databridge:bulkCreate': {
       post: {
+        operationId: 'bulkCreate',
         tags: ['databridge'],
         summary: 'Bulk create assets using unified AssetPayloadMap format',
         description:
-          'Create one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request. The `id` field in data is ignored (auto-generated). All operations are ACID - the entire batch succeeds or fails atomically.',
+          'Create one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nThe `collection` field is required and accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections within the platform.\n\nThe `id` field in data is ignored (auto-generated). The `data.name` field is required and must be unique within the platform. All operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
@@ -409,7 +404,7 @@ export default {
               example: {
                 'Station 2': {
                   platform: 'models',
-                  collection: 't_98x374ie2j7',
+                  collection: 'ArmStation',
                   data: {
                     name: 'Station 2',
                     left_gpu: 'WS63',
@@ -419,7 +414,7 @@ export default {
                 },
                 IRS099: {
                   platform: 'models',
-                  collection: 't_abc123',
+                  collection: 'RealsenseCamera',
                   data: {
                     name: 'IRS099',
                     serial_number: '99999',
@@ -455,7 +450,7 @@ export default {
           400: { description: 'Invalid request format' },
           404: { description: 'Platform or collection not found' },
           409: {
-            description: 'Duplicate name - asset already exists',
+            description: 'Duplicate name (asset already exists) or ambiguous collection title (matches multiple collections within the platform)',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
@@ -475,10 +470,11 @@ export default {
     },
     '/databridge:bulkDelete': {
       post: {
+        operationId: 'bulkDelete',
         tags: ['databridge'],
         summary: 'Bulk delete assets using unified AssetPayloadMap format',
         description:
-          'Delete one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request. Only `platform`, `collection`, and `data.name` are required (data.id can be used for lookup). All operations are ACID - the entire batch succeeds or fails atomically.',
+          'Delete one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nOnly `platform` is required per asset. The `collection` and `data` fields are optional — when omitted, the asset is identified entirely via the platform lookup table using the map key (asset name). When `collection` is provided, it accepts an internal name or title (case-insensitive, 409 on ambiguity). When `data.id` is provided, it overrides the lookup table ID.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
@@ -487,19 +483,10 @@ export default {
               example: {
                 'Station 1': {
                   platform: 'models',
-                  collection: 't_98x374ie2j7',
-                  data: {
-                    id: 1,
-                    name: 'Station 1',
-                  },
                 },
                 IRS026: {
                   platform: 'inventory',
-                  collection: 't_abc123',
-                  data: {
-                    id: 42,
-                    name: 'IRS026',
-                  },
+                  collection: 'RealsenseCamera',
                 },
               },
             },
@@ -538,18 +525,20 @@ export default {
             },
           },
           422: {
-            description: 'Validation error',
+            description: 'Validation error (collection mismatch, etc.)',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
               },
             },
           },
+          409: { description: 'Ambiguous collection title — matches multiple collections within the platform' },
         },
       },
     },
     '/databridge:listCollections': {
       get: {
+        operationId: 'listSyncableCollections',
         tags: ['databridge_platforms'],
         summary: 'List all collections with sync eligibility',
         responses: {
@@ -576,6 +565,7 @@ export default {
     },
     '/databridge_platforms:list': {
       get: {
+        operationId: 'listPlatforms',
         tags: ['databridge_platforms'],
         summary: 'List all platforms',
         responses: {
@@ -605,6 +595,7 @@ export default {
     },
     '/databridge_platforms:get': {
       get: {
+        operationId: 'getPlatform',
         tags: ['databridge_platforms'],
         summary: 'Get a single platform by ID or slug',
         parameters: [
@@ -641,6 +632,7 @@ export default {
     },
     '/databridge_platforms:create': {
       post: {
+        operationId: 'createPlatform',
         tags: ['databridge_platforms'],
         summary: 'Create a new platform',
         requestBody: {
@@ -667,6 +659,7 @@ export default {
     },
     '/databridge_platforms:add': {
       post: {
+        operationId: 'addCollections',
         tags: ['databridge_platforms'],
         summary: 'Register collections with a platform and sync their records',
         parameters: [
@@ -719,6 +712,7 @@ export default {
     },
     '/databridge_platforms:remove': {
       post: {
+        operationId: 'removeCollections',
         tags: ['databridge_platforms'],
         summary: 'Unregister collections from a platform and delete their lookup entries',
         parameters: [
@@ -770,6 +764,7 @@ export default {
     },
     '/databridge_platforms:syncAll': {
       post: {
+        operationId: 'syncAll',
         tags: ['databridge_platforms'],
         summary: 'Re-sync all registered collections for a platform',
         description: 'Triggers a full re-sync of all collections currently registered with the platform.',
@@ -804,6 +799,7 @@ export default {
     },
     '/databridge_platforms:syncCollection': {
       post: {
+        operationId: 'syncCollection',
         tags: ['databridge_platforms'],
         summary: 'Re-sync a single collection for a platform',
         description: 'Triggers a re-sync of a specific collection that is already registered with the platform.',
@@ -825,7 +821,8 @@ export default {
                 properties: {
                   collection: {
                     type: 'string',
-                    description: 'Collection name to re-sync',
+                    description:
+                      'Collection to re-sync. Accepts internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections within the platform.',
                   },
                 },
               },
@@ -849,12 +846,14 @@ export default {
             },
           },
           400: { description: 'Collection not registered with this platform' },
-          404: { description: 'Platform not found' },
+          404: { description: 'Platform or collection not found' },
+          409: { description: 'Ambiguous collection title — matches multiple collections within the platform' },
         },
       },
     },
     '/databridge_platforms:deletePlatform': {
       post: {
+        operationId: 'deletePlatform',
         tags: ['databridge_platforms'],
         summary: 'Delete a platform',
         parameters: [
@@ -874,6 +873,7 @@ export default {
     },
     '/databridge_platforms:view': {
       get: {
+        operationId: 'viewLookup',
         tags: ['databridge_platforms'],
         summary: 'View platform lookup entries',
         parameters: [

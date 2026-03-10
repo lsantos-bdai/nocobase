@@ -1,21 +1,24 @@
 import { Context, Next } from '@nocobase/actions';
-import { getPlatformOrThrow, getLookupRepoOrThrow, getCollectionTitle, validateCollectionHasNameField } from '../utils';
+import { getPlatformOrThrow, getLookupRepoOrThrow, getCollectionTitle, validateCollectionHasNameField, resolveCollection } from '../utils';
 import { syncRecordsToLookup } from '../utils';
 
 export async function syncCollection(ctx: Context, next: Next) {
   const platformIdentifier = ctx.action.params.platform || ctx.request.query.platform;
-  const { collection: collectionName } = ctx.action.params.values || {};
+  const { collection: collectionInput } = ctx.action.params.values || {};
 
   if (!platformIdentifier) {
     ctx.throw(400, 'platform parameter (id or slug) is required');
   }
 
-  if (!collectionName) {
+  if (!collectionInput) {
     ctx.throw(400, 'collection name is required');
   }
 
   const platformRecord = await getPlatformOrThrow(ctx, platformIdentifier);
   const lookupRepo = await getLookupRepoOrThrow(ctx, platformRecord);
+
+  // Resolve collection name (supports case-insensitive title matching)
+  const collectionName = await resolveCollection(ctx, platformRecord, collectionInput);
 
   // Validate collection exists and has 'name' field
   validateCollectionHasNameField(ctx, collectionName);

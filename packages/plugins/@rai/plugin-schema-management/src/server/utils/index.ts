@@ -20,3 +20,4 @@ export {
   type ValidationWarning,
   type ValidationResult,
 } from './data-validator';
+export { resolveCollection } from './resolve-collection';

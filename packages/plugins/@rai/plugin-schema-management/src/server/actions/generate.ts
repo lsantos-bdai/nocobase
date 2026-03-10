@@ -1,6 +1,6 @@
 import { Context, Next } from '@nocobase/actions';
 import * as yaml from 'js-yaml';
-import { mapFieldToOpenAPI, normalizeFieldName, FieldMapperContext } from '../utils';
+import { mapFieldToOpenAPI, normalizeFieldName, FieldMapperContext, resolveCollection } from '../utils';
 
 // System fields that are auto-generated and should not be in the required array
 const SYSTEM_FIELDS = new Set([
@@ -19,31 +19,9 @@ export async function generate(ctx: Context, next: Next) {
     ctx.throw(400, 'collection parameter is required');
   }
 
-  // Try direct lookup first (internal name)
-  let collection = ctx.db.getCollection(collectionName);
-  let collMeta;
-
-  if (!collection) {
-    // Try finding by title (human-readable name)
-    collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { title: collectionName },
-    });
-    if (collMeta) {
-      collection = ctx.db.getCollection(collMeta.name);
-    }
-  }
-
-  if (!collection) {
-    ctx.throw(404, `Collection '${collectionName}' not found`);
-  }
-
-  // Get collection title from metadata if not already fetched
-  if (!collMeta) {
-    collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { name: collection.name },
-    });
-  }
-  const title = collMeta?.title || collectionName;
+  // Resolve collection (case-insensitive title matching, 409 on ambiguity)
+  const { resolvedName, collectionTitle: title } = await resolveCollection(ctx, collectionName);
+  const collection = ctx.db.getCollection(resolvedName)!;
 
   // Build collection title map for resolving relation targets to human-readable names
   const allCollections = await ctx.db.getRepository('collections').find({

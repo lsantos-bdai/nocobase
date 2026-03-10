@@ -1,4 +1,3 @@
-import { Context } from '@nocobase/actions';
 import { Collection, Field, Database } from '@nocobase/database';
 import { Platform } from './platform-helpers';
 
@@ -220,33 +219,6 @@ export async function validateFieldValues(
   }
 
   return errors;
-}
-
-/**
- * Resolve a collection name or title to the internal collection name.
- */
-export async function resolveCollectionName(
-  ctx: Context,
-  collectionIdentifier: string,
-  registeredCollections: string[],
-): Promise<string | null> {
-  // Check if it's already an internal collection name
-  if (registeredCollections.includes(collectionIdentifier)) {
-    return collectionIdentifier;
-  }
-
-  // Try to find by title (case-insensitive)
-  const collectionLower = collectionIdentifier.toLowerCase();
-  const collectionRecords = await ctx.db.getRepository('collections').find({
-    filter: { name: { $in: registeredCollections } },
-    fields: ['name', 'title'],
-  });
-
-  const matchedCollection = collectionRecords.find(
-    (c: any) => c.title?.toLowerCase() === collectionLower || c.name.toLowerCase() === collectionLower,
-  );
-
-  return matchedCollection?.name || null;
 }
 
 /**

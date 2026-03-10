@@ -8,6 +8,7 @@ import {
   ValidationError,
   validateAssetPayloadMap,
   AssetPayload,
+  resolveCollection,
 } from '../utils';
 
 interface CreateResult {
@@ -58,8 +59,8 @@ interface CreateError {
 export async function create(ctx: Context, next: Next) {
   const body = ctx.request.body;
 
-  // Validate input using unified schema (id not required for create)
-  const validation = validateAssetPayloadMap(body, { requireId: false });
+  // Validate input using unified schema (platform, collection, data with name all required for create)
+  const validation = validateAssetPayloadMap(body, { context: 'create' });
   if (!validation.valid) {
     ctx.throw(400, (validation as { valid: false; error: string }).error);
     return;
@@ -86,30 +87,29 @@ export async function create(ctx: Context, next: Next) {
       for (const [assetName, payload] of assets) {
         const { collection: collectionName, data } = payload;
 
+        // These are guaranteed present by validateAssetPayloadMap with context 'create'
+        const collection_name = collectionName!;
+        const assetData = data!;
+
         // Validate name field matches the asset key
-        if (!data.name || typeof data.name !== 'string') {
+        if (!assetData.name || typeof assetData.name !== 'string') {
           throw new ValidationError([`Asset '${assetName}': name field is required in data`]);
         }
 
-        // Verify the collection is registered in this platform
-        const registeredCollections: string[] = platformRecord.registeredCollections || [];
-        if (!registeredCollections.includes(collectionName)) {
-          throw new ValidationError([
-            `Collection '${collectionName}' is not registered in platform '${platformSlug}'`,
-          ]);
-        }
+        // Resolve the collection (supports case-insensitive title matching)
+        const resolvedCollectionName = await resolveCollection(ctx, platformRecord, collection_name);
 
         // Get the collection
-        const collection = ctx.db.getCollection(collectionName);
+        const collection = ctx.db.getCollection(resolvedCollectionName);
         if (!collection) {
-          throw new ValidationError([`Collection '${collectionName}' not found`]);
+          throw new ValidationError([`Collection '${resolvedCollectionName}' not found`]);
         }
 
         // Validate required fields
-        const requiredErrors = validateRequiredFields(collection, data, true);
+        const requiredErrors = validateRequiredFields(collection, assetData, true);
 
         // Validate field values (types, enums, etc.) using NocoBase Interface system
-        const valueErrors = await validateFieldValues(collection, data, ctx.db);
+        const valueErrors = await validateFieldValues(collection, assetData, ctx.db);
 
         const allErrors = [...requiredErrors, ...valueErrors];
         if (allErrors.length > 0) {
@@ -118,7 +118,7 @@ export async function create(ctx: Context, next: Next) {
 
         // Check for duplicate name in platform lookup table
         const existingLookup = await ctx.db.getRepository(platformRecord.collectionName).findOne({
-          filter: { name: data.name },
+          filter: { name: assetData.name },
           transaction,
         });
 
@@ -127,7 +127,7 @@ export async function create(ctx: Context, next: Next) {
             error: 'Duplicate name',
             details: {
               asset: assetName,
-              message: `Asset '${data.name}' already exists in platform`,
+              message: `Asset '${assetData.name}' already exists in platform`,
             },
           };
           ctx.status = 409;
@@ -140,7 +140,7 @@ export async function create(ctx: Context, next: Next) {
         // Convert human-readable data to internal format
         let internalData: Record<string, unknown>;
         try {
-          internalData = await unresolveData(collection, data, platformRecord, ctx.db);
+          internalData = await unresolveData(collection, assetData, platformRecord, ctx.db);
         } catch (err) {
           if (err instanceof RelationNotFoundError) {
             const errorResponse: CreateError = {
@@ -165,7 +165,7 @@ export async function create(ctx: Context, next: Next) {
         delete internalData.id;
 
         // Perform the create
-        await ctx.db.getRepository(collectionName).create({
+        await ctx.db.getRepository(resolvedCollectionName).create({
           values: internalData,
           transaction,
           context: ctx, // Pass Koa context so hooks can access currentUser

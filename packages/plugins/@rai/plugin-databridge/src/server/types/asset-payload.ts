@@ -22,19 +22,24 @@ export interface AssetData {
 
 /**
  * Payload for a single asset, including its platform and collection context.
+ *
+ * Field requirements vary by operation (enforced at runtime by validateAssetPayloadMap):
+ * - create: platform, collection, and data (with name) are all required
+ * - update: platform and data required; collection optional (derived from lookup)
+ * - delete: only platform required; collection and data optional (derived from lookup)
  */
 export interface AssetPayload {
-  /** Platform slug (e.g., "models", "inventory") - REQUIRED */
+  /** Platform slug (e.g., "models", "inventory") - REQUIRED for all operations */
   platform: string;
 
-  /** Internal collection name (e.g., "t_98x374ie2j7") - REQUIRED */
-  collection: string;
+  /** Collection name or title — REQUIRED for create, optional for update/delete (derived from lookup) */
+  collection?: string;
 
   /** Human-readable collection title (e.g., "ArmStation") - OPTIONAL for input */
   collection_title?: string;
 
-  /** The record data */
-  data: AssetData;
+  /** The record data — REQUIRED for create/update, optional for delete */
+  data?: AssetData;
 }
 
 /**
@@ -44,11 +49,20 @@ export interface AssetPayload {
 export type AssetPayloadMap = Record<string, AssetPayload>;
 
 /**
+ * Validation context determines which fields are required per operation.
+ *
+ * - create: requires platform, collection, data (with name)
+ * - update: requires platform, data; collection is optional (derived from lookup)
+ * - delete: requires platform only; collection and data are optional (derived from lookup)
+ */
+export type ValidationContext = 'create' | 'update' | 'delete';
+
+/**
  * Options for validating an asset payload map.
  */
 export interface ValidateOptions {
-  /** Whether data.id is required (for update/delete operations) */
-  requireId?: boolean;
+  /** Operation context — controls which fields are required */
+  context: ValidationContext;
 }
 
 /**
@@ -70,14 +84,21 @@ export interface InvalidResult {
 /**
  * Validate an asset payload map.
  *
+ * Field requirements by context:
+ * - create: platform (required), collection (required), data (required, data.name required)
+ * - update: platform (required), collection (optional), data (required)
+ * - delete: platform (required), collection (optional), data (optional)
+ *
  * @param body The request body to validate
- * @param options Validation options
+ * @param options Validation options with operation context
  * @returns Validation result with either the typed assets or an error message
  */
 export function validateAssetPayloadMap(
   body: unknown,
-  options: ValidateOptions = {},
+  options: ValidateOptions,
 ): ValidResult | InvalidResult {
+  const { context } = options;
+
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return { valid: false, error: 'Request body must be an object mapping asset names to payloads' };
   }
@@ -94,22 +115,35 @@ export function validateAssetPayloadMap(
 
     const p = payload as Record<string, unknown>;
 
+    // platform is always required
     if (!p.platform || typeof p.platform !== 'string') {
       return { valid: false, error: `Asset '${assetName}': 'platform' field is required` };
     }
 
-    if (!p.collection || typeof p.collection !== 'string') {
-      return { valid: false, error: `Asset '${assetName}': 'collection' field is required` };
+    // collection: required for create, optional for update/delete
+    if (context === 'create') {
+      if (!p.collection || typeof p.collection !== 'string') {
+        return { valid: false, error: `Asset '${assetName}': 'collection' field is required for create` };
+      }
+    } else if (p.collection !== undefined && typeof p.collection !== 'string') {
+      return { valid: false, error: `Asset '${assetName}': 'collection' must be a string when provided` };
     }
 
-    if (!p.data || typeof p.data !== 'object') {
-      return { valid: false, error: `Asset '${assetName}': 'data' field is required` };
+    // data: required for create/update, optional for delete
+    if (context === 'create' || context === 'update') {
+      if (!p.data || typeof p.data !== 'object') {
+        return { valid: false, error: `Asset '${assetName}': 'data' field is required for ${context}` };
+      }
+    } else if (p.data !== undefined && typeof p.data !== 'object') {
+      return { valid: false, error: `Asset '${assetName}': 'data' must be an object when provided` };
     }
 
-    const data = p.data as Record<string, unknown>;
-
-    if (options.requireId && data.id === undefined) {
-      return { valid: false, error: `Asset '${assetName}': 'data.id' is required for this operation` };
+    // data.name: required for create only
+    if (context === 'create' && p.data) {
+      const data = p.data as Record<string, unknown>;
+      if (!data.name || typeof data.name !== 'string') {
+        return { valid: false, error: `Asset '${assetName}': 'data.name' is required for create` };
+      }
     }
   }
 

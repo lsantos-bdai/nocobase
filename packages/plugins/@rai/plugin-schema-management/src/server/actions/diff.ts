@@ -6,6 +6,7 @@ import {
   validateMigration,
   mapFieldToOpenAPI,
   normalizeFieldName,
+  resolveCollection,
   type ClassifiedChanges,
   type ValidationWarning,
   type FieldMapperContext,
@@ -38,31 +39,8 @@ interface DiffResponse {
  * (Duplicated from generate.ts to avoid circular dependencies)
  */
 async function generateCurrentSpec(ctx: Context, collectionName: string): Promise<string> {
-  // Try direct lookup first (internal name)
-  let collection = ctx.db.getCollection(collectionName);
-  let collMeta;
-
-  if (!collection) {
-    // Try finding by title (human-readable name)
-    collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { title: collectionName },
-    });
-    if (collMeta) {
-      collection = ctx.db.getCollection(collMeta.name);
-    }
-  }
-
-  if (!collection) {
-    throw new Error(`Collection '${collectionName}' not found`);
-  }
-
-  // Get collection title from metadata if not already fetched
-  if (!collMeta) {
-    collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { name: collection.name },
-    });
-  }
-  const title = collMeta?.title || collectionName;
+  const { resolvedName, collectionTitle: title } = await resolveCollection(ctx, collectionName);
+  const collection = ctx.db.getCollection(resolvedName)!;
 
   // Build collection title map for resolving relation targets
   const allCollections = await ctx.db.getRepository('collections').find({
@@ -150,23 +128,9 @@ export async function diff(ctx: Context, next: Next) {
     ctx.throw(400, 'spec parameter is required (YAML string)');
   }
 
-  // Resolve collection name (could be title)
-  let collection = ctx.db.getCollection(collectionName);
-  let resolvedName = collectionName;
-
-  if (!collection) {
-    const collMeta = await ctx.db.getRepository('collections').findOne({
-      filter: { title: collectionName },
-    });
-    if (collMeta) {
-      collection = ctx.db.getCollection(collMeta.name);
-      resolvedName = collMeta.name;
-    }
-  }
-
-  if (!collection) {
-    ctx.throw(404, `Collection '${collectionName}' not found`);
-  }
+  // Resolve collection name (case-insensitive title matching, 409 on ambiguity)
+  const { resolvedName } = await resolveCollection(ctx, collectionName);
+  const collection = ctx.db.getCollection(resolvedName)!;
 
   try {
     // Generate current spec

@@ -6,6 +6,7 @@ import {
   ValidationError,
   validateAssetPayloadMap,
   AssetPayload,
+  resolveCollection,
 } from '../utils';
 
 interface DeleteResult {
@@ -51,9 +52,8 @@ interface DeleteError {
 export async function deleteAssets(ctx: Context, next: Next) {
   const body = ctx.request.body;
 
-  // Validate input using unified schema
-  // Note: We allow either id OR name for deletion (name is used for lookup if no id)
-  const validation = validateAssetPayloadMap(body, { requireId: false });
+  // Validate input using unified schema (collection and data are optional for delete)
+  const validation = validateAssetPayloadMap(body, { context: 'delete' });
   if (!validation.valid) {
     ctx.throw(400, (validation as { valid: false; error: string }).error);
     return;
@@ -93,19 +93,24 @@ export async function deleteAssets(ctx: Context, next: Next) {
           throw new AssetNotFoundError(assetName);
         }
 
+        // Resolve collection if provided, otherwise use collection from lookup
+        const resolvedCollectionName = collectionName
+          ? await resolveCollection(ctx, platformRecord, collectionName)
+          : lookupResult.collection;
+
         // Verify collection matches if provided
-        if (lookupResult.collection !== collectionName) {
+        if (collectionName && lookupResult.collection !== resolvedCollectionName) {
           throw new ValidationError([
-            `Asset '${assetName}' belongs to collection '${lookupResult.collection}', not '${collectionName}'`,
+            `Asset '${assetName}' belongs to collection '${lookupResult.collection}', not '${resolvedCollectionName}'`,
           ]);
         }
 
-        // Use the ID from data if provided, otherwise use the looked-up ID
-        const assetId = data.id !== undefined ? data.id : lookupResult.assetId;
+        // Use the ID from lookup table (data.id is optional override)
+        const assetId = data?.id !== undefined ? data.id : lookupResult.assetId;
 
         assetInfos.push({
           name: assetName,
-          collection: collectionName,
+          collection: resolvedCollectionName,
           assetId,
           platformSlug,
         });

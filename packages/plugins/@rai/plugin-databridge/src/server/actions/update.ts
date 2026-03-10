@@ -9,6 +9,7 @@ import {
   AssetNotFoundError,
   validateAssetPayloadMap,
   AssetPayload,
+  resolveCollection,
 } from '../utils';
 
 interface UpdateResult {
@@ -50,8 +51,8 @@ interface UpdateError {
 export async function update(ctx: Context, next: Next) {
   const body = ctx.request.body;
 
-  // Validate input using unified schema
-  const validation = validateAssetPayloadMap(body, { requireId: true });
+  // Validate input using unified schema (collection and data.id are optional for update)
+  const validation = validateAssetPayloadMap(body, { context: 'update' });
   if (!validation.valid) {
     ctx.throw(400, (validation as { valid: false; error: string }).error);
     return;
@@ -76,7 +77,9 @@ export async function update(ctx: Context, next: Next) {
       const platformRecord = await getPlatformBySlugOrThrow(ctx, platformSlug);
 
       for (const [assetName, payload] of assets) {
-        const { collection: collectionName, data } = payload;
+        const { collection: collectionName } = payload;
+        // data is guaranteed present by validateAssetPayloadMap with context 'update'
+        const data = payload.data!;
 
         // Verify the asset exists in the platform's lookup table
         const lookupResult = await lookupAssetIdByName(ctx.db, platformRecord, assetName);
@@ -84,17 +87,22 @@ export async function update(ctx: Context, next: Next) {
           throw new AssetNotFoundError(assetName);
         }
 
-        // Verify collection matches
-        if (lookupResult.collection !== collectionName) {
+        // Resolve collection if provided, otherwise use collection from lookup
+        const resolvedCollectionName = collectionName
+          ? await resolveCollection(ctx, platformRecord, collectionName)
+          : lookupResult.collection;
+
+        // Verify collection matches lookup
+        if (collectionName && lookupResult.collection !== resolvedCollectionName) {
           throw new ValidationError([
-            `Asset '${assetName}' belongs to collection '${lookupResult.collection}', not '${collectionName}'`,
+            `Asset '${assetName}' belongs to collection '${lookupResult.collection}', not '${resolvedCollectionName}'`,
           ]);
         }
 
         // Get the collection
-        const collection = ctx.db.getCollection(collectionName);
+        const collection = ctx.db.getCollection(resolvedCollectionName);
         if (!collection) {
-          throw new ValidationError([`Collection '${collectionName}' not found`]);
+          throw new ValidationError([`Collection '${resolvedCollectionName}' not found`]);
         }
 
         // Validate field values (types, enums, etc.) using NocoBase Interface system
@@ -130,9 +138,9 @@ export async function update(ctx: Context, next: Next) {
         // Remove 'id' from update values (it's for identifying, not updating)
         const { id, ...updateValues } = internalData;
 
-        // Perform the update
-        await ctx.db.getRepository(collectionName).update({
-          filterByTk: data.id,
+        // Perform the update using assetId from lookup table
+        await ctx.db.getRepository(resolvedCollectionName).update({
+          filterByTk: lookupResult.assetId,
           values: updateValues,
           transaction,
           context: ctx, // Pass Koa context so hooks can access currentUser

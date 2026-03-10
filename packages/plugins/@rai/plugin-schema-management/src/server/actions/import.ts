@@ -92,15 +92,18 @@ export async function importSpec(ctx: Context, next: Next) {
   }
 
   // Build title -> internal name map from existing collections
-  // Include both title and internal name as keys for lookup
+  // Include both title and internal name as keys for lookup (case-insensitive)
   const titleToName = new Map<string, string>();
   const existingCollections = await ctx.db.getRepository('collections').find({
     fields: ['name', 'title'],
   });
   for (const coll of existingCollections) {
-    titleToName.set(coll.title || coll.name, coll.name);
+    const title = coll.title || coll.name;
+    titleToName.set(title, coll.name);
+    titleToName.set(title.toLowerCase(), coll.name);
     // Also map internal name to itself for system relations (e.g., "users" -> "users")
     titleToName.set(coll.name, coll.name);
+    titleToName.set(coll.name.toLowerCase(), coll.name);
   }
 
   // Fail if collection already exists
