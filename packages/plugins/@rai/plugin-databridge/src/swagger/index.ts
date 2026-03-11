@@ -21,7 +21,7 @@ export default {
         type: 'object',
         additionalProperties: true,
         description:
-          'Asset data as a flat key-value object. All collection fields are top-level properties. There are no fixed properties — the shape depends on the collection schema. Common conventions: "name" (string, unique asset identifier within platform), "id" (integer, auto-generated record ID).',
+          'Asset data as a flat key-value object. The `name` field (string) is required for all mutation operations and must be unique within the platform. All collection fields are top-level properties — the shape depends on the collection schema.',
       },
       AssetPayload: {
         type: 'object',
@@ -44,11 +44,12 @@ export default {
           },
           data: {
             $ref: '#/components/schemas/AssetData',
+            description: 'Asset data — REQUIRED for all mutation operations.',
           },
         },
-        required: ['platform'],
+        required: ['platform', 'data'],
         description:
-          'Payload for a single asset. Field requirements vary by operation:\n- **bulkCreate**: `platform`, `collection`, and `data` (with `name`) are all required.\n- **bulkUpdate**: `platform` and `data` required; `collection` is optional (derived from lookup).\n- **bulkDelete**: only `platform` required; `collection` and `data` are optional (derived from lookup).',
+          'Payload for a single asset. Field requirements vary by operation:\n- **bulkCreate**: `platform`, `collection`, and `data` (with `name`) are all required.\n- **bulkUpdate**: `platform` and `data` (with `name`) required; `collection` is optional (derived from lookup).\n- **bulkDelete**: `platform` and `data` (with `name`) required; `collection` is optional (derived from lookup).',
       },
       AssetPayloadMap: {
         type: 'object',
@@ -403,16 +404,19 @@ export default {
       post: {
         operationId: 'bulkUpdate',
         tags: ['databridge'],
-        summary: 'Bulk update assets using unified AssetPayloadMap format',
+        summary: 'Bulk update assets using a list of AssetPayload objects',
         description:
-          'Update one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nThe `collection` field is optional — if omitted, the collection is derived from the platform lookup table. When provided, it accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections.\n\nThe `data.id` field is not required — the record is identified by the asset name (the map key) via the platform lookup table.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
+          'Update one or more assets. The request body is an array of AssetPayload objects. Each asset is identified by `data.name` (looked up in the platform\'s lookup table).\n\nThe `collection` field is optional — if omitted, the collection is derived from the platform lookup table. When provided, it accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections.\n\nThe `data.id` field is not required — the record is identified by `data.name` via the platform lookup table.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: { $ref: '#/components/schemas/AssetPayloadMap' },
-              example: {
-                'Station 1': {
+              schema: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/AssetPayload' },
+              },
+              example: [
+                {
                   platform: 'models',
                   collection: 'ArmStation',
                   data: {
@@ -421,14 +425,14 @@ export default {
                     right_gpu: 'WS64',
                   },
                 },
-                IRS026: {
+                {
                   platform: 'inventory',
                   data: {
                     name: 'IRS026',
                     serial_number: '999999',
                   },
                 },
-              },
+              ],
             },
           },
         },
@@ -473,16 +477,19 @@ export default {
       post: {
         operationId: 'bulkCreate',
         tags: ['databridge'],
-        summary: 'Bulk create assets using unified AssetPayloadMap format',
+        summary: 'Bulk create assets using a list of AssetPayload objects',
         description:
-          'Create one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nThe `collection` field is required and accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections within the platform.\n\nThe `id` field in data is ignored (auto-generated). The `data.name` field is required and must be unique within the platform. All operations are ACID — the entire batch succeeds or fails atomically.',
+          'Create one or more assets. The request body is an array of AssetPayload objects. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nThe `collection` field is required and accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections within the platform.\n\nThe `id` field in data is ignored (auto-generated). The `data.name` field is required and must be unique within the platform. All operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: { $ref: '#/components/schemas/AssetPayloadMap' },
-              example: {
-                'Station 2': {
+              schema: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/AssetPayload' },
+              },
+              example: [
+                {
                   platform: 'models',
                   collection: 'ArmStation',
                   data: {
@@ -492,7 +499,7 @@ export default {
                     table_type: 'Table',
                   },
                 },
-                IRS099: {
+                {
                   platform: 'models',
                   collection: 'RealsenseCamera',
                   data: {
@@ -500,7 +507,7 @@ export default {
                     serial_number: '99999',
                   },
                 },
-              },
+              ],
             },
           },
         },
@@ -552,23 +559,28 @@ export default {
       post: {
         operationId: 'bulkDelete',
         tags: ['databridge'],
-        summary: 'Bulk delete assets using unified AssetPayloadMap format',
+        summary: 'Bulk delete assets using a list of AssetPayload objects',
         description:
-          'Delete one or more assets using the AssetPayloadMap format. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nOnly `platform` is required per asset. The `collection` and `data` fields are optional — when omitted, the asset is identified entirely via the platform lookup table using the map key (asset name). When `collection` is provided, it accepts an internal name or title (case-insensitive, 409 on ambiguity). When `data.id` is provided, it overrides the lookup table ID.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
+          'Delete one or more assets. The request body is an array of AssetPayload objects. Each asset is identified by `data.name` (looked up in the platform\'s lookup table).\n\nThe `platform` and `data` (with `name`) fields are required per asset. The `collection` field is optional — when omitted, the collection is derived from the platform lookup table. When provided, it accepts an internal name or title (case-insensitive, 409 on ambiguity). When `data.id` is provided, it overrides the lookup table ID.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: { $ref: '#/components/schemas/AssetPayloadMap' },
-              example: {
-                'Station 1': {
+              schema: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/AssetPayload' },
+              },
+              example: [
+                {
                   platform: 'models',
+                  data: { name: 'Station 1' },
                 },
-                IRS026: {
+                {
                   platform: 'inventory',
                   collection: 'RealsenseCamera',
+                  data: { name: 'IRS026' },
                 },
-              },
+              ],
             },
           },
         },

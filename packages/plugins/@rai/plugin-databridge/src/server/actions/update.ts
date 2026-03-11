@@ -7,7 +7,7 @@ import {
   RelationNotFoundError,
   ValidationError,
   AssetNotFoundError,
-  validateAssetPayloadMap,
+  validateAssetPayloadList,
   AssetPayload,
   resolveCollection,
 } from '../utils';
@@ -28,41 +28,38 @@ interface UpdateError {
 }
 
 /**
- * Update action - updates assets using the unified AssetPayloadMap format.
+ * Update action - updates assets from a list of AssetPayload objects.
  *
- * Request body: AssetPayloadMap
- * {
- *   "Station 1": {
+ * Request body: AssetPayload[]
+ * [
+ *   {
  *     "platform": "models",
- *     "collection": "t_98x374ie2j7",
- *     "collection_title": "ArmStation",
  *     "data": {
- *       "id": 1,
  *       "name": "Station 1",
- *       "left_gpu": "WS63",
- *       ...
+ *       "left_gpu": "WS63"
  *     }
  *   }
- * }
+ * ]
  *
+ * data.name identifies which asset to update (looked up in the platform's lookup table).
  * The platform is specified per-asset in the payload (no query parameter).
  * Supports multi-platform operations in a single request.
  */
 export async function update(ctx: Context, next: Next) {
   const body = ctx.request.body;
 
-  // Validate input using unified schema (collection and data.id are optional for update)
-  const validation = validateAssetPayloadMap(body, { context: 'update' });
+  // Validate input: array of payloads, platform + data.name required for update
+  const validation = validateAssetPayloadList(body, { context: 'update' });
   if (!validation.valid) {
     ctx.throw(400, (validation as { valid: false; error: string }).error);
     return;
   }
 
   // Group assets by platform for efficient processing
-  const byPlatform = new Map<string, Array<[string, AssetPayload]>>();
-  for (const [assetName, payload] of Object.entries(validation.assets)) {
+  const byPlatform = new Map<string, AssetPayload[]>();
+  for (const payload of validation.assets) {
     const group = byPlatform.get(payload.platform) || [];
-    group.push([assetName, payload]);
+    group.push(payload);
     byPlatform.set(payload.platform, group);
   }
 
@@ -76,10 +73,11 @@ export async function update(ctx: Context, next: Next) {
     for (const [platformSlug, assets] of byPlatform) {
       const platformRecord = await getPlatformBySlugOrThrow(ctx, platformSlug);
 
-      for (const [assetName, payload] of assets) {
+      for (const payload of assets) {
         const { collection: collectionName } = payload;
-        // data is guaranteed present by validateAssetPayloadMap with context 'update'
+        // data and data.name are guaranteed present by validateAssetPayloadList
         const data = payload.data!;
+        const assetName = data.name;
 
         // Verify the asset exists in the platform's lookup table
         const lookupResult = await lookupAssetIdByName(ctx.db, platformRecord, assetName);

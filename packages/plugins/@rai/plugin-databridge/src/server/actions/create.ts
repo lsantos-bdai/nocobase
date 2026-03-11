@@ -6,7 +6,7 @@ import {
   validateFieldValues,
   RelationNotFoundError,
   ValidationError,
-  validateAssetPayloadMap,
+  validateAssetPayloadList,
   AssetPayload,
   resolveCollection,
 } from '../utils';
@@ -27,14 +27,13 @@ interface CreateError {
 }
 
 /**
- * Create action - creates new assets using the unified AssetPayloadMap format.
+ * Create action - creates new assets from a list of AssetPayload objects.
  *
- * Request body: AssetPayloadMap
- * {
- *   "Station 2": {
+ * Request body: AssetPayload[]
+ * [
+ *   {
  *     "platform": "models",
- *     "collection": "t_98x374ie2j7",
- *     "collection_title": "ArmStation",
+ *     "collection": "ArmStation",
  *     "data": {
  *       "name": "Station 2",
  *       "left_gpu": "WS63",
@@ -42,15 +41,15 @@ interface CreateError {
  *       "table_type": "Table"
  *     }
  *   },
- *   "IRS099": {
+ *   {
  *     "platform": "models",
- *     "collection": "t_abc123",
+ *     "collection": "RealsenseCamera",
  *     "data": {
  *       "name": "IRS099",
  *       "serial_number": "99999"
  *     }
  *   }
- * }
+ * ]
  *
  * The platform is specified per-asset in the payload (no query parameter).
  * The id field in data is ignored (auto-generated).
@@ -59,18 +58,18 @@ interface CreateError {
 export async function create(ctx: Context, next: Next) {
   const body = ctx.request.body;
 
-  // Validate input using unified schema (platform, collection, data with name all required for create)
-  const validation = validateAssetPayloadMap(body, { context: 'create' });
+  // Validate input: array of payloads, platform + collection + data.name all required for create
+  const validation = validateAssetPayloadList(body, { context: 'create' });
   if (!validation.valid) {
     ctx.throw(400, (validation as { valid: false; error: string }).error);
     return;
   }
 
   // Group assets by platform for efficient processing
-  const byPlatform = new Map<string, Array<[string, AssetPayload]>>();
-  for (const [assetName, payload] of Object.entries(validation.assets)) {
+  const byPlatform = new Map<string, AssetPayload[]>();
+  for (const payload of validation.assets) {
     const group = byPlatform.get(payload.platform) || [];
-    group.push([assetName, payload]);
+    group.push(payload);
     byPlatform.set(payload.platform, group);
   }
 
@@ -84,20 +83,14 @@ export async function create(ctx: Context, next: Next) {
     for (const [platformSlug, assets] of byPlatform) {
       const platformRecord = await getPlatformBySlugOrThrow(ctx, platformSlug);
 
-      for (const [assetName, payload] of assets) {
-        const { collection: collectionName, data } = payload;
-
-        // These are guaranteed present by validateAssetPayloadMap with context 'create'
-        const collection_name = collectionName!;
-        const assetData = data!;
-
-        // Validate name field matches the asset key
-        if (!assetData.name || typeof assetData.name !== 'string') {
-          throw new ValidationError([`Asset '${assetName}': name field is required in data`]);
-        }
+      for (const payload of assets) {
+        // These are guaranteed present by validateAssetPayloadList with context 'create'
+        const collectionName = payload.collection!;
+        const assetData = payload.data!;
+        const assetName = assetData.name;
 
         // Resolve the collection (supports case-insensitive title matching)
-        const resolvedCollectionName = await resolveCollection(ctx, platformRecord, collection_name);
+        const resolvedCollectionName = await resolveCollection(ctx, platformRecord, collectionName);
 
         // Get the collection
         const collection = ctx.db.getCollection(resolvedCollectionName);
@@ -118,7 +111,7 @@ export async function create(ctx: Context, next: Next) {
 
         // Check for duplicate name in platform lookup table
         const existingLookup = await ctx.db.getRepository(platformRecord.collectionName).findOne({
-          filter: { name: assetData.name },
+          filter: { name: assetName },
           transaction,
         });
 
@@ -127,7 +120,7 @@ export async function create(ctx: Context, next: Next) {
             error: 'Duplicate name',
             details: {
               asset: assetName,
-              message: `Asset '${assetData.name}' already exists in platform`,
+              message: `Asset '${assetName}' already exists in platform`,
             },
           };
           ctx.status = 409;

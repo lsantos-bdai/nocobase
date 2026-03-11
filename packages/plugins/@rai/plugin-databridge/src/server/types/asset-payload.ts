@@ -1,19 +1,20 @@
 /**
  * Unified Asset Payload Schema for Databridge CRUD operations.
  *
- * This schema is used for create, update, and delete inputs and get outputs.
- * All operations accept an AssetPayloadMap where each asset specifies its own platform.
+ * - Responses (get/search) use AssetPayloadMap (dict keyed by asset name for O(1) lookup).
+ * - Mutation inputs (create/update/delete) use AssetPayload[] (list).
+ *   The asset name is always sourced from data.name — dict keys are never used as identifiers.
  */
 
 /**
  * The data portion of an asset payload.
- * Contains the record ID (required for update/delete) and field values.
+ * Contains the record ID (auto-generated) and field values.
  */
 export interface AssetData {
-  /** Record ID - REQUIRED for update/delete, auto-generated for create */
+  /** Record ID - auto-generated, ignored on create */
   id?: number | string;
 
-  /** Asset name - REQUIRED, must be unique within platform */
+  /** Asset name - REQUIRED for all mutation operations, must be unique within platform */
   name: string;
 
   /** Any other fields defined on the collection */
@@ -23,10 +24,10 @@ export interface AssetData {
 /**
  * Payload for a single asset, including its platform and collection context.
  *
- * Field requirements vary by operation (enforced at runtime by validateAssetPayloadMap):
+ * Field requirements vary by operation (enforced at runtime by validateAssetPayloadList):
  * - create: platform, collection, and data (with name) are all required
- * - update: platform and data required; collection optional (derived from lookup)
- * - delete: only platform required; collection and data optional (derived from lookup)
+ * - update: platform and data (with name) required; collection optional (derived from lookup)
+ * - delete: platform and data (with name) required; collection optional (derived from lookup)
  */
 export interface AssetPayload {
   /** Platform slug (e.g., "models", "inventory") - REQUIRED for all operations */
@@ -35,16 +36,17 @@ export interface AssetPayload {
   /** Collection name or title — REQUIRED for create, optional for update/delete (derived from lookup) */
   collection?: string;
 
-  /** Human-readable collection title (e.g., "ArmStation") - OPTIONAL for input */
+  /** Human-readable collection title (e.g., "ArmStation") - present in responses, ignored in requests */
   collection_title?: string;
 
-  /** The record data — REQUIRED for create/update, optional for delete */
+  /** The record data — REQUIRED for all mutation operations */
   data?: AssetData;
 }
 
 /**
  * A map of asset names to their payloads.
  * Keys are human-readable asset names (e.g., "Station 3", "IRS022").
+ * Used for GET/SEARCH responses — provides O(1) lookup by name.
  */
 export type AssetPayloadMap = Record<string, AssetPayload>;
 
@@ -52,13 +54,13 @@ export type AssetPayloadMap = Record<string, AssetPayload>;
  * Validation context determines which fields are required per operation.
  *
  * - create: requires platform, collection, data (with name)
- * - update: requires platform, data; collection is optional (derived from lookup)
- * - delete: requires platform only; collection and data are optional (derived from lookup)
+ * - update: requires platform, data (with name); collection is optional
+ * - delete: requires platform, data (with name); collection is optional
  */
 export type ValidationContext = 'create' | 'update' | 'delete';
 
 /**
- * Options for validating an asset payload map.
+ * Options for validating an asset payload list.
  */
 export interface ValidateOptions {
   /** Operation context — controls which fields are required */
@@ -68,9 +70,9 @@ export interface ValidateOptions {
 /**
  * Validation result when successful.
  */
-export interface ValidResult {
+export interface ValidListResult {
   valid: true;
-  assets: AssetPayloadMap;
+  assets: AssetPayload[];
 }
 
 /**
@@ -82,70 +84,66 @@ export interface InvalidResult {
 }
 
 /**
- * Validate an asset payload map.
+ * Validate an asset payload list for mutation operations (create/update/delete).
  *
  * Field requirements by context:
- * - create: platform (required), collection (required), data (required, data.name required)
- * - update: platform (required), collection (optional), data (required)
- * - delete: platform (required), collection (optional), data (optional)
+ * - create: platform (required), collection (required), data (required), data.name (required)
+ * - update: platform (required), collection (optional), data (required), data.name (required)
+ * - delete: platform (required), collection (optional), data (required), data.name (required)
  *
- * @param body The request body to validate
+ * @param body The request body to validate (must be an array of AssetPayload)
  * @param options Validation options with operation context
  * @returns Validation result with either the typed assets or an error message
  */
-export function validateAssetPayloadMap(
+export function validateAssetPayloadList(
   body: unknown,
   options: ValidateOptions,
-): ValidResult | InvalidResult {
+): ValidListResult | InvalidResult {
   const { context } = options;
 
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return { valid: false, error: 'Request body must be an object mapping asset names to payloads' };
+  if (!body || !Array.isArray(body)) {
+    return { valid: false, error: 'Request body must be an array of asset payloads' };
   }
 
-  const entries = Object.entries(body as Record<string, unknown>);
-  if (entries.length === 0) {
-    return { valid: false, error: 'Request body must contain at least one asset' };
+  if (body.length === 0) {
+    return { valid: false, error: 'Request body must contain at least one asset payload' };
   }
 
-  for (const [assetName, payload] of entries) {
-    if (!payload || typeof payload !== 'object') {
-      return { valid: false, error: `Asset '${assetName}': payload must be an object` };
+  for (let i = 0; i < body.length; i++) {
+    const payload = body[i];
+    const label = `Payload[${i}]`;
+
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return { valid: false, error: `${label}: must be an object` };
     }
 
     const p = payload as Record<string, unknown>;
 
     // platform is always required
     if (!p.platform || typeof p.platform !== 'string') {
-      return { valid: false, error: `Asset '${assetName}': 'platform' field is required` };
+      return { valid: false, error: `${label}: 'platform' field is required` };
     }
 
     // collection: required for create, optional for update/delete
     if (context === 'create') {
       if (!p.collection || typeof p.collection !== 'string') {
-        return { valid: false, error: `Asset '${assetName}': 'collection' field is required for create` };
+        return { valid: false, error: `${label}: 'collection' field is required for create` };
       }
     } else if (p.collection !== undefined && typeof p.collection !== 'string') {
-      return { valid: false, error: `Asset '${assetName}': 'collection' must be a string when provided` };
+      return { valid: false, error: `${label}: 'collection' must be a string when provided` };
     }
 
-    // data: required for create/update, optional for delete
-    if (context === 'create' || context === 'update') {
-      if (!p.data || typeof p.data !== 'object') {
-        return { valid: false, error: `Asset '${assetName}': 'data' field is required for ${context}` };
-      }
-    } else if (p.data !== undefined && typeof p.data !== 'object') {
-      return { valid: false, error: `Asset '${assetName}': 'data' must be an object when provided` };
+    // data is required for all mutation operations
+    if (!p.data || typeof p.data !== 'object' || Array.isArray(p.data)) {
+      return { valid: false, error: `${label}: 'data' field is required` };
     }
 
-    // data.name: required for create only
-    if (context === 'create' && p.data) {
-      const data = p.data as Record<string, unknown>;
-      if (!data.name || typeof data.name !== 'string') {
-        return { valid: false, error: `Asset '${assetName}': 'data.name' is required for create` };
-      }
+    // data.name is required for all mutation operations
+    const data = p.data as Record<string, unknown>;
+    if (!data.name || typeof data.name !== 'string') {
+      return { valid: false, error: `${label}: 'data.name' is required` };
     }
   }
 
-  return { valid: true, assets: body as AssetPayloadMap };
+  return { valid: true, assets: body as AssetPayload[] };
 }
