@@ -2,6 +2,7 @@ import { Plugin } from '@nocobase/server';
 import { Model, Transaction } from 'sequelize';
 import {
   get,
+  getSchemaConformant,
   search,
   list,
   indexAssets,
@@ -44,6 +45,7 @@ export class PluginDatabridgeServer extends Plugin {
       name: 'databridge',
       actions: {
         get,
+        getSchemaConformant,
         search,
         list,
         index: indexAssets,
@@ -76,6 +78,7 @@ export class PluginDatabridgeServer extends Plugin {
       actions: [
         'databridge_platforms:*',
         'databridge:get',
+        'databridge:getSchemaConformant',
         'databridge:search',
         'databridge:list',
         'databridge:index',
@@ -87,7 +90,7 @@ export class PluginDatabridgeServer extends Plugin {
     });
 
     // Allow logged-in users to use databridge actions
-    this.app.acl.allow('databridge', ['get', 'search', 'list', 'index', 'listCollections', 'bulkUpdate', 'bulkCreate', 'bulkDelete'], 'loggedIn');
+    this.app.acl.allow('databridge', ['get', 'getSchemaConformant', 'search', 'list', 'index', 'listCollections', 'bulkUpdate', 'bulkCreate', 'bulkDelete'], 'loggedIn');
 
     // Allow databridge_platforms actions for users with pm.databridge snippet
     this.app.acl.allow(

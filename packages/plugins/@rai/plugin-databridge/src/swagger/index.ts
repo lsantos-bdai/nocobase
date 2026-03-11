@@ -161,14 +161,6 @@ export default {
             description:
               'How deep to traverse relations (only used when get_relations=true). 1 = direct relations only.',
           },
-          {
-            name: 'response_type',
-            in: 'query',
-            required: false,
-            schema: { type: 'string', enum: ['default', 'dippy_prod', 'dippy_dev'], default: 'default' },
-            description:
-              'Response format. "default" returns nested object keyed by asset name. "dippy_prod" or "dippy_dev" returns flattened array with $schema URLs pointing to GCS-hosted OpenAPI schemas.',
-          },
         ],
         responses: {
           200: {
@@ -180,6 +172,94 @@ export default {
             },
           },
           400: { description: 'Missing required parameters' },
+        },
+      },
+    },
+    '/databridge:getSchemaConformant': {
+      get: {
+        operationId: 'getSchemaConformant',
+        tags: ['databridge'],
+        summary: 'Get assets in schema-conformant format with $schema URLs',
+        description:
+          'Get one or more assets and return them as a flat array of data objects, each with a `$schema` property pointing to the GCS-hosted schema YAML for the asset\'s collection. The `env` parameter selects the GCS bucket (prod vs dev). Supports relation traversal.',
+        parameters: [
+          {
+            name: 'platform',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Platform slug',
+          },
+          {
+            name: 'asset_name',
+            in: 'query',
+            required: true,
+            schema: {
+              type: 'array',
+              items: { type: 'string' },
+            },
+            description: 'Asset name(s) to look up. Can be a single name or multiple names.',
+          },
+          {
+            name: 'env',
+            in: 'query',
+            required: true,
+            schema: { type: 'string', enum: ['prod', 'dev'] },
+            description: 'Schema environment. Selects which GCS bucket to use for $schema URLs.',
+          },
+          {
+            name: 'get_relations',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean', default: false },
+            description: 'If true, recursively fetch related assets registered in the same platform.',
+          },
+          {
+            name: 'relation_depth',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 0 },
+            description:
+              'How deep to traverse relations (only used when get_relations=true). 1 = direct relations only.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Schema-conformant asset data array',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      $schema: {
+                        type: 'string',
+                        description: 'URL to the GCS-hosted schema YAML for this asset\'s collection',
+                        example:
+                          'https://storage.cloud.google.com/schema-management-proj-mle-396318/bdai/ingestion/ArmStation/latest/spec/ArmStation.yaml',
+                      },
+                    },
+                    additionalProperties: true,
+                    description:
+                      'Asset data with all collection fields as top-level properties, plus a $schema URL.',
+                  },
+                },
+                example: [
+                  {
+                    $schema:
+                      'https://storage.cloud.google.com/schema-management-proj-mle-396318/bdai/ingestion/ArmStation/latest/spec/ArmStation.yaml',
+                    id: 3,
+                    name: 'Station 3',
+                    table_type: 'Table',
+                    left_gpu: 'WS39',
+                    right_gpu: 'WS39',
+                  },
+                ],
+              },
+            },
+          },
+          400: { description: 'Missing required parameters or invalid env value' },
         },
       },
     },
