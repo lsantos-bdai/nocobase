@@ -13,6 +13,7 @@ export default {
   },
   tags: [
     { name: 'databridge', description: 'Asset CRUD operations (get, search, bulkCreate, bulkUpdate, bulkDelete)' },
+    { name: 'databridgeBasic', description: 'Platform-free collection-level CRUD, search, and schema-conformant export' },
     { name: 'databridge_platforms', description: 'Platform management' },
   ],
   components: {
@@ -118,6 +119,105 @@ export default {
             },
           },
         },
+      },
+      RelationDescriptor: {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Internal collection name of the related table' },
+          collection_title: { type: 'string', description: 'Human-readable title of the related table' },
+          id: {
+            type: 'array',
+            items: { oneOf: [{ type: 'integer' }, { type: 'string' }] },
+            description: 'ID(s) of the related record(s). Always an array, even for belongsTo.',
+          },
+          name: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Name(s) of the related record(s), when the target collection has a name field. Empty array otherwise.',
+          },
+        },
+        required: ['collection', 'collection_title', 'id', 'name'],
+        example: {
+          collection: 't_ta7jaqy245a',
+          collection_title: 'FrankaResearch3',
+          id: [25],
+          name: ['Amber'],
+        },
+      },
+      BasicAssetData: {
+        type: 'object',
+        additionalProperties: true,
+        description:
+          'Asset data as a flat key-value object. Relation fields are represented as RelationDescriptor objects in responses. For mutations, relation values must be raw FK IDs.',
+      },
+      BasicAssetPayload: {
+        type: 'object',
+        properties: {
+          collection: {
+            type: 'string',
+            description:
+              'Collection name or title. Accepts internal name (e.g., "t_98x374ie2j7") or human-readable title (e.g., "ArmStation") — matching is case-insensitive. Returns 409 if ambiguous.',
+            example: 'ArmStation',
+          },
+          collection_title: {
+            type: 'string',
+            description: 'Human-readable collection title — present in responses, ignored in requests.',
+            example: 'ArmStation',
+          },
+          data: {
+            $ref: '#/components/schemas/BasicAssetData',
+            description: 'Asset data. Relation fields are RelationDescriptor objects in responses.',
+          },
+        },
+        required: ['collection', 'data'],
+        description:
+          'Payload for a single asset in the basic (platform-free) API.\n- **get/search** (response): collection, collection_title, and data are present.\n- **bulkCreate**: collection and data required; data.id is ignored.\n- **bulkUpdate/bulkDelete**: collection and data (with id) required.',
+      },
+      BasicBulkOperationResponse: {
+        type: 'object',
+        properties: {
+          created: {
+            type: 'array',
+            items: { type: 'integer' },
+            description: 'List of created record IDs (for bulkCreate)',
+          },
+          updated: {
+            type: 'array',
+            items: { type: 'integer' },
+            description: 'List of updated record IDs (for bulkUpdate)',
+          },
+          deleted: {
+            type: 'array',
+            items: { type: 'integer' },
+            description: 'List of deleted record IDs (for bulkDelete)',
+          },
+          count: {
+            type: 'integer',
+            description: 'Number of records affected',
+          },
+        },
+      },
+      BasicListResponse: {
+        type: 'object',
+        properties: {
+          data: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/BasicAssetPayload' },
+            description: 'Page of BasicAssetPayload items',
+          },
+          meta: {
+            type: 'object',
+            properties: {
+              page: { type: 'integer', description: 'Current page number (1-indexed)' },
+              pageSize: { type: 'integer', description: 'Items per page' },
+              count: { type: 'integer', description: 'Total number of matching records' },
+              totalPage: { type: 'integer', description: 'Total number of pages' },
+            },
+            required: ['page', 'pageSize', 'count', 'totalPage'],
+          },
+        },
+        required: ['data', 'meta'],
+        description: 'Paginated list response with BasicAssetPayload items and pagination metadata.',
       },
     },
   },
@@ -625,6 +725,418 @@ export default {
             },
           },
           409: { description: 'Ambiguous collection title — matches multiple collections within the platform' },
+        },
+      },
+    },
+    '/databridgeBasic:get': {
+      get: {
+        operationId: 'basicGetAssets',
+        tags: ['databridgeBasic'],
+        summary: 'Get assets by collection and filter (platform-free)',
+        description:
+          'Get assets from a collection using a JSON filter. Returns a list of BasicAssetPayload objects with relation descriptors. Supports BFS relation expansion.',
+        parameters: [
+          {
+            name: 'collection',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description:
+              'Collection name or title (case-insensitive). Returns 409 if ambiguous.',
+          },
+          {
+            name: 'filter',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'JSON filter object, e.g. {"name":"Amber"} or {"id":5}',
+          },
+          {
+            name: 'get_relations',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean', default: false },
+            description:
+              'If true, BFS-append related records as separate BasicAssetPayload items (deduplicated).',
+          },
+          {
+            name: 'relation_depth',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 0 },
+            description: 'How deep to traverse relations (only used when get_relations=true).',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Assets found',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/BasicAssetPayload' },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing required parameters or invalid filter JSON' },
+          404: { description: 'Collection not found' },
+          409: { description: 'Ambiguous collection title' },
+        },
+      },
+    },
+    '/databridgeBasic:getSchemaConformant': {
+      get: {
+        operationId: 'basicGetSchemaConformant',
+        tags: ['databridgeBasic'],
+        summary: 'Get assets in schema-conformant format (platform-free)',
+        description:
+          'Get assets and return them as a flat array with `$schema` URLs. Relation fields show name strings (falling back to stringified IDs). The `env` parameter selects the GCS bucket.',
+        parameters: [
+          {
+            name: 'collection',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Collection name or title (case-insensitive).',
+          },
+          {
+            name: 'filter',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'JSON filter object',
+          },
+          {
+            name: 'env',
+            in: 'query',
+            required: true,
+            schema: { type: 'string', enum: ['prod', 'dev'] },
+            description: 'Schema environment. Selects which GCS bucket to use for $schema URLs.',
+          },
+          {
+            name: 'get_relations',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean', default: false },
+            description: 'If true, include related records in the output.',
+          },
+          {
+            name: 'relation_depth',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 0 },
+            description: 'How deep to traverse relations.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Schema-conformant asset data array',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      $schema: {
+                        type: 'string',
+                        description: 'URL to the GCS-hosted schema YAML',
+                      },
+                    },
+                    additionalProperties: true,
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing required parameters or invalid filter/env' },
+          404: { description: 'Collection not found' },
+          409: { description: 'Ambiguous collection title' },
+        },
+      },
+    },
+    '/databridgeBasic:search': {
+      get: {
+        operationId: 'basicSearchAssets',
+        tags: ['databridgeBasic'],
+        summary: 'Search assets in a collection (platform-free)',
+        description:
+          'Search a single collection for records matching a search term. Always searches all text fields and relation .name paths. Returns list of BasicAssetPayload with relation descriptors.',
+        parameters: [
+          {
+            name: 'collection',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Collection name or title (case-insensitive).',
+          },
+          {
+            name: 'q',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Search term (case-insensitive substring match)',
+          },
+          {
+            name: 'limit',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 10, maximum: 100 },
+            description: 'Maximum number of results (default: 10, max: 100)',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Search results',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/BasicAssetPayload' },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing required parameters' },
+          404: { description: 'Collection not found' },
+          409: { description: 'Ambiguous collection title' },
+        },
+      },
+    },
+    '/databridgeBasic:list': {
+      get: {
+        operationId: 'basicListAssets',
+        tags: ['databridgeBasic'],
+        summary: 'Paginated list of assets in a collection (platform-free)',
+        description:
+          'List assets from a collection with pagination, sorting, filtering, and field selection. Returns BasicAssetPayload items with relation descriptors and pagination metadata.',
+        parameters: [
+          {
+            name: 'collection',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description:
+              'Collection name or title (case-insensitive). Returns 409 if ambiguous.',
+          },
+          {
+            name: 'page',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 20, minimum: 1, maximum: 100 },
+            description: 'Items per page (default: 20, max: 100)',
+          },
+          {
+            name: 'sort',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'JSON array of sort keys, e.g. ["-createdAt","name"]. Prefix "-" for descending. Accepts human-readable field names.',
+          },
+          {
+            name: 'filter',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'JSON filter object, e.g. {"name":"Amber"}. Accepts human-readable field names.',
+          },
+          {
+            name: 'fields',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'JSON array of field names to include, e.g. ["name","serial_number"]. Accepts human-readable field names. Omit to return all fields.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Paginated list of assets',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/BasicListResponse' },
+                example: {
+                  data: [
+                    {
+                      collection: 't_98x374ie2j7',
+                      collection_title: 'ArmStation',
+                      data: {
+                        id: 3,
+                        name: 'Station 3',
+                        table_type: 'Table',
+                      },
+                    },
+                  ],
+                  meta: {
+                    page: 1,
+                    pageSize: 20,
+                    count: 42,
+                    totalPage: 3,
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Missing required parameters or invalid sort/filter/fields JSON' },
+          404: { description: 'Collection not found' },
+          409: { description: 'Ambiguous collection title' },
+        },
+      },
+    },
+    '/databridgeBasic:bulkCreate': {
+      post: {
+        operationId: 'basicBulkCreate',
+        tags: ['databridgeBasic'],
+        summary: 'Bulk create assets (platform-free)',
+        description:
+          'Create one or more assets. The request body is an array of BasicAssetPayload objects. `collection` and `data` are required per item. `data.id` is ignored (auto-generated). Relation values must be raw FK IDs. All operations are ACID.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/BasicAssetPayload' },
+              },
+              example: [
+                {
+                  collection: 'ArmStation',
+                  data: {
+                    name: 'Station 2',
+                    table_type: 'Table',
+                  },
+                },
+              ],
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Assets created successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    created: { type: 'array', items: { type: 'integer' }, description: 'IDs of created records' },
+                    count: { type: 'integer', description: 'Number of records created' },
+                  },
+                },
+                example: { created: [10, 11], count: 2 },
+              },
+            },
+          },
+          400: { description: 'Invalid request format' },
+          404: { description: 'Collection not found' },
+          409: { description: 'Duplicate entry or ambiguous collection title' },
+          422: { description: 'Validation failed', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationErrorResponse' } } } },
+        },
+      },
+    },
+    '/databridgeBasic:bulkUpdate': {
+      post: {
+        operationId: 'basicBulkUpdate',
+        tags: ['databridgeBasic'],
+        summary: 'Bulk update assets by data.id (platform-free)',
+        description:
+          'Update one or more assets. Each item requires `collection`, `data` (with `id`). The record is identified by `data.id`. Relation values must be raw FK IDs. All operations are ACID.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/BasicAssetPayload' },
+              },
+              example: [
+                {
+                  collection: 'ArmStation',
+                  data: {
+                    id: 3,
+                    table_type: 'Desk',
+                  },
+                },
+              ],
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Assets updated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    updated: { type: 'array', items: { type: 'integer' }, description: 'IDs of updated records' },
+                    count: { type: 'integer', description: 'Number of records updated' },
+                  },
+                },
+                example: { updated: [3], count: 1 },
+              },
+            },
+          },
+          400: { description: 'Invalid request format' },
+          404: { description: 'Collection or record not found' },
+          409: { description: 'Ambiguous collection title' },
+          422: { description: 'Validation failed', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationErrorResponse' } } } },
+        },
+      },
+    },
+    '/databridgeBasic:bulkDelete': {
+      post: {
+        operationId: 'basicBulkDelete',
+        tags: ['databridgeBasic'],
+        summary: 'Bulk delete assets by data.id (platform-free)',
+        description:
+          'Delete one or more assets. Each item requires `collection`, `data` (with `id`). Two-pass: verify all records exist, then delete. All operations are ACID.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/BasicAssetPayload' },
+              },
+              example: [
+                {
+                  collection: 'ArmStation',
+                  data: { id: 3 },
+                },
+              ],
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Assets deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    deleted: { type: 'array', items: { type: 'integer' }, description: 'IDs of deleted records' },
+                    count: { type: 'integer', description: 'Number of records deleted' },
+                  },
+                },
+                example: { deleted: [3], count: 1 },
+              },
+            },
+          },
+          400: { description: 'Invalid request format' },
+          404: { description: 'Collection or record not found' },
+          409: { description: 'Ambiguous collection title' },
+          422: { description: 'Validation failed', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationErrorResponse' } } } },
         },
       },
     },

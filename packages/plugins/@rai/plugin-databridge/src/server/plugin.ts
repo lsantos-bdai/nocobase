@@ -18,6 +18,7 @@ import {
   syncAll,
   syncCollection,
   getPlatform,
+  basic,
 } from './actions';
 import { DuplicateNamesError } from './errors/duplicate-names-error';
 import { getCollectionTitle } from './utils';
@@ -56,6 +57,20 @@ export class PluginDatabridgeServer extends Plugin {
       },
     });
 
+    // Register databridgeBasic resource actions (platform-free API)
+    this.app.resourceManager.define({
+      name: 'databridgeBasic',
+      actions: {
+        get: basic.basicGet,
+        getSchemaConformant: basic.basicGetSchemaConformant,
+        search: basic.basicSearch,
+        list: basic.basicList,
+        bulkCreate: basic.basicCreate,
+        bulkUpdate: basic.basicUpdate,
+        bulkDelete: basic.basicDelete,
+      },
+    });
+
     // Register custom actions for databridge_platforms (overrides default)
     this.app.resourceManager.registerActionHandler('databridge_platforms:list', async (ctx: any, next: any) => {
       const repo = ctx.db.getRepository('databridge_platforms');
@@ -86,11 +101,21 @@ export class PluginDatabridgeServer extends Plugin {
         'databridge:bulkUpdate',
         'databridge:bulkCreate',
         'databridge:bulkDelete',
+        'databridgeBasic:get',
+        'databridgeBasic:getSchemaConformant',
+        'databridgeBasic:search',
+        'databridgeBasic:list',
+        'databridgeBasic:bulkCreate',
+        'databridgeBasic:bulkUpdate',
+        'databridgeBasic:bulkDelete',
       ],
     });
 
     // Allow logged-in users to use databridge actions
     this.app.acl.allow('databridge', ['get', 'getSchemaConformant', 'search', 'list', 'index', 'listCollections', 'bulkUpdate', 'bulkCreate', 'bulkDelete'], 'loggedIn');
+
+    // Allow logged-in users to use databridgeBasic actions
+    this.app.acl.allow('databridgeBasic', ['get', 'getSchemaConformant', 'search', 'list', 'bulkCreate', 'bulkUpdate', 'bulkDelete'], 'loggedIn');
 
     // Allow databridge_platforms actions for users with pm.databridge snippet
     this.app.acl.allow(

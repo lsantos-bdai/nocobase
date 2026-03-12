@@ -15,3 +15,4 @@ export { viewPlatform } from './view-platform';
 export { syncAll } from './sync-all';
 export { syncCollection } from './sync-collection';
 export { getPlatform } from './get-platform';
+export * as basic from './basic';
