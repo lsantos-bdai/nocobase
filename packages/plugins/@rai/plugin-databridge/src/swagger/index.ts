@@ -18,26 +18,16 @@ export default {
   ],
   components: {
     schemas: {
-      PaginatedMeta: {
+      PaginationMeta: {
         type: 'object',
+        description: 'Unified pagination metadata. When get_relations=false, truncated is always false and max_assets is 0. When get_relations=true, they reflect graph bounding.',
         properties: {
           page: { type: 'integer', description: 'Current page number (1-indexed)' },
           pageSize: { type: 'integer', description: 'Items per page' },
-          count: { type: 'integer', description: 'Total number of matching records' },
+          count: { type: 'integer', description: 'Total number of matching records (includes relations when get_relations=true)' },
           totalPage: { type: 'integer', description: 'Total number of pages' },
-        },
-        required: ['page', 'pageSize', 'count', 'totalPage'],
-      },
-      GraphPaginatedMeta: {
-        type: 'object',
-        description: 'Pagination metadata for graph-based responses (when get_relations=true). Extends PaginatedMeta with graph bounding info.',
-        properties: {
-          page: { type: 'integer', description: 'Current page number (1-indexed)' },
-          pageSize: { type: 'integer', description: 'Items per page' },
-          count: { type: 'integer', description: 'Total number of assets in the graph (primaries + relations)' },
-          totalPage: { type: 'integer', description: 'Total number of pages' },
-          truncated: { type: 'boolean', description: 'True if BFS was stopped because the graph reached max_assets' },
-          max_assets: { type: 'integer', description: 'Maximum graph size (primaries + relations)' },
+          truncated: { type: 'boolean', description: 'True if BFS was stopped because the graph reached max_assets. Always false when get_relations=false.' },
+          max_assets: { type: 'integer', description: 'Maximum graph size (primaries + relations). 0 when get_relations=false.' },
         },
         required: ['page', 'pageSize', 'count', 'totalPage', 'truncated', 'max_assets'],
       },
@@ -228,7 +218,7 @@ export default {
             items: { $ref: '#/components/schemas/BasicAssetPayload' },
             description: 'Page of BasicAssetPayload items',
           },
-          meta: { $ref: '#/components/schemas/PaginatedMeta' },
+          meta: { $ref: '#/components/schemas/PaginationMeta' },
         },
         required: ['data', 'meta'],
         description: 'Paginated list response with BasicAssetPayload items and pagination metadata.',
@@ -242,7 +232,7 @@ export default {
         tags: ['databridge'],
         summary: 'Get assets by platform and name(s)',
         description:
-          'Get one or more assets by name. Returns data in AssetPayloadMap format.\n\n**Without relations** (`get_relations=false`, default): Standard paginated query over matching lookup entries. `meta` = `PaginatedMeta`.\n\n**With relations** (`get_relations=true`): Two-phase graph + window approach. Phase 1 builds a lightweight asset graph (primaries + BFS-expanded relations) capped at `max_assets`. Phase 2 paginates over the graph. `meta` = `GraphPaginatedMeta` where `count` is total graph size.',
+          'Get one or more assets by name. Returns data in AssetPayloadMap format.\n\n**Without relations** (`get_relations=false`, default): Standard paginated query over matching lookup entries. `meta.truncated` = `false`, `meta.max_assets` = `0`.\n\n**With relations** (`get_relations=true`): Two-phase graph + window approach. Phase 1 builds a lightweight asset graph (primaries + BFS-expanded relations) capped at `max_assets`. Phase 2 paginates over the graph. `meta.count` is total graph size.',
         parameters: [
           {
             name: 'platform',
@@ -300,20 +290,15 @@ export default {
         ],
         responses: {
           200: {
-            description: 'Paginated assets. When get_relations=false, meta is PaginatedMeta. When get_relations=true, meta is GraphPaginatedMeta.',
+            description: 'Paginated assets with unified PaginationMeta.',
             content: {
               'application/json': {
                 schema: {
+                  title: 'AssetMapResponse',
                   type: 'object',
                   properties: {
                     data: { $ref: '#/components/schemas/AssetPayloadMap' },
-                    meta: {
-                      oneOf: [
-                        { $ref: '#/components/schemas/PaginatedMeta' },
-                        { $ref: '#/components/schemas/GraphPaginatedMeta' },
-                      ],
-                      description: 'PaginatedMeta when get_relations=false; GraphPaginatedMeta when get_relations=true',
-                    },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },
@@ -330,7 +315,7 @@ export default {
         tags: ['databridge'],
         summary: 'Get assets in schema-conformant format with $schema URLs',
         description:
-          'Get one or more assets and return them as a flat array of data objects, each with a `$schema` property pointing to the GCS-hosted schema YAML for the asset\'s collection. The `env` parameter selects the GCS bucket (prod vs dev).\n\n**Without relations** (`get_relations=false`, default): Standard paginated query. `meta` = `PaginatedMeta`.\n\n**With relations** (`get_relations=true`): Two-phase graph + window approach. `meta` = `GraphPaginatedMeta` where `count` is total graph size.',
+          'Get one or more assets and return them as a flat array of data objects, each with a `$schema` property pointing to the GCS-hosted schema YAML for the asset\'s collection. The `env` parameter selects the GCS bucket (prod vs dev).\n\n**Without relations** (`get_relations=false`, default): Standard paginated query. `meta.truncated` = `false`, `meta.max_assets` = `0`.\n\n**With relations** (`get_relations=true`): Two-phase graph + window approach. `meta.count` is total graph size.',
         parameters: [
           {
             name: 'platform',
@@ -395,15 +380,17 @@ export default {
         ],
         responses: {
           200: {
-            description: 'Schema-conformant asset data array (paginated). Meta is PaginatedMeta or GraphPaginatedMeta depending on get_relations.',
+            description: 'Schema-conformant asset data array (paginated).',
             content: {
               'application/json': {
                 schema: {
+                  title: 'SchemaConformantResponse',
                   type: 'object',
                   properties: {
                     data: {
                       type: 'array',
                       items: {
+                        title: 'SchemaConformantItem',
                         type: 'object',
                         properties: {
                           $schema: {
@@ -418,13 +405,7 @@ export default {
                           'Asset data with all collection fields as top-level properties, plus a $schema URL.',
                       },
                     },
-                    meta: {
-                      oneOf: [
-                        { $ref: '#/components/schemas/PaginatedMeta' },
-                        { $ref: '#/components/schemas/GraphPaginatedMeta' },
-                      ],
-                      description: 'PaginatedMeta when get_relations=false; GraphPaginatedMeta when get_relations=true',
-                    },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },
@@ -508,10 +489,11 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'SearchResponse',
                   type: 'object',
                   properties: {
                     data: { $ref: '#/components/schemas/AssetPayloadMap' },
-                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },
@@ -559,11 +541,13 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'CollectionListResponse',
                   type: 'object',
                   properties: {
                     data: {
                       type: 'array',
                       items: {
+                        title: 'CollectionListItem',
                         type: 'object',
                         properties: {
                           name: { type: 'string', description: 'Internal collection name' },
@@ -571,7 +555,7 @@ export default {
                         },
                       },
                     },
-                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },
@@ -625,6 +609,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'BulkUpdateResult',
                   type: 'object',
                   properties: {
                     updated: {
@@ -700,6 +685,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'BulkCreateResult',
                   type: 'object',
                   properties: {
                     created: {
@@ -773,6 +759,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'BulkDeleteResult',
                   type: 'object',
                   properties: {
                     deleted: {
@@ -889,10 +876,11 @@ export default {
         ],
         responses: {
           200: {
-            description: 'Paginated assets. When get_relations=false, meta is PaginatedMeta. When get_relations=true, meta is GraphPaginatedMeta.',
+            description: 'Paginated assets with unified PaginationMeta.',
             content: {
               'application/json': {
                 schema: {
+                  title: 'BasicAssetListResponse',
                   type: 'object',
                   properties: {
                     data: {
@@ -900,13 +888,7 @@ export default {
                       items: { $ref: '#/components/schemas/BasicAssetPayload' },
                       description: 'Page of BasicAssetPayload items (primaries + relations when get_relations=true)',
                     },
-                    meta: {
-                      oneOf: [
-                        { $ref: '#/components/schemas/PaginatedMeta' },
-                        { $ref: '#/components/schemas/GraphPaginatedMeta' },
-                      ],
-                      description: 'PaginatedMeta when get_relations=false; GraphPaginatedMeta when get_relations=true',
-                    },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },
@@ -1007,15 +989,17 @@ export default {
         ],
         responses: {
           200: {
-            description: 'Schema-conformant asset data array (paginated). Meta is PaginatedMeta or GraphPaginatedMeta depending on get_relations.',
+            description: 'Schema-conformant asset data array (paginated).',
             content: {
               'application/json': {
                 schema: {
+                  title: 'BasicSchemaConformantResponse',
                   type: 'object',
                   properties: {
                     data: {
                       type: 'array',
                       items: {
+                        title: 'BasicSchemaConformantItem',
                         type: 'object',
                         properties: {
                           $schema: {
@@ -1026,13 +1010,7 @@ export default {
                         additionalProperties: true,
                       },
                     },
-                    meta: {
-                      oneOf: [
-                        { $ref: '#/components/schemas/PaginatedMeta' },
-                        { $ref: '#/components/schemas/GraphPaginatedMeta' },
-                      ],
-                      description: 'PaginatedMeta when get_relations=false; GraphPaginatedMeta when get_relations=true',
-                    },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },
@@ -1130,6 +1108,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'BasicBulkCreateResult',
                   type: 'object',
                   properties: {
                     created: { type: 'array', items: { type: 'integer' }, description: 'IDs of created records' },
@@ -1180,6 +1159,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'BasicBulkUpdateResult',
                   type: 'object',
                   properties: {
                     updated: { type: 'array', items: { type: 'integer' }, description: 'IDs of updated records' },
@@ -1227,6 +1207,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'BasicBulkDeleteResult',
                   type: 'object',
                   properties: {
                     deleted: { type: 'array', items: { type: 'integer' }, description: 'IDs of deleted records' },
@@ -1271,11 +1252,13 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'SyncableCollectionListResponse',
                   type: 'object',
                   properties: {
                     data: {
                       type: 'array',
                       items: {
+                        title: 'SyncableCollection',
                         type: 'object',
                         properties: {
                           name: { type: 'string', description: 'Internal collection name' },
@@ -1284,7 +1267,7 @@ export default {
                         },
                       },
                     },
-                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },
@@ -1322,11 +1305,13 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'PlatformListResponse',
                   type: 'object',
                   properties: {
                     data: {
                       type: 'array',
                       items: {
+                        title: 'Platform',
                         type: 'object',
                         properties: {
                           id: { type: 'integer' },
@@ -1338,7 +1323,7 @@ export default {
                         },
                       },
                     },
-                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },
@@ -1369,6 +1354,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'Platform',
                   type: 'object',
                   properties: {
                     id: { type: 'integer' },
@@ -1451,6 +1437,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'AddCollectionsResult',
                   type: 'object',
                   properties: {
                     synced: { type: 'integer', description: 'Number of lookup entries created' },
@@ -1504,6 +1491,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'RemoveCollectionsResult',
                   type: 'object',
                   properties: {
                     removed: { type: 'integer', description: 'Number of lookup entries deleted' },
@@ -1539,6 +1527,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'SyncAllResult',
                   type: 'object',
                   properties: {
                     synced: { type: 'integer', description: 'Number of entries synced' },
@@ -1591,6 +1580,7 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'SyncCollectionResult',
                   type: 'object',
                   properties: {
                     synced: { type: 'integer', description: 'Number of entries synced' },
@@ -1661,11 +1651,13 @@ export default {
             content: {
               'application/json': {
                 schema: {
+                  title: 'LookupListResponse',
                   type: 'object',
                   properties: {
                     data: {
                       type: 'array',
                       items: {
+                        title: 'LookupEntry',
                         type: 'object',
                         properties: {
                           id: { type: 'integer' },
@@ -1675,7 +1667,7 @@ export default {
                         },
                       },
                     },
-                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
+                    meta: { $ref: '#/components/schemas/PaginationMeta' },
                   },
                   required: ['data', 'meta'],
                 },

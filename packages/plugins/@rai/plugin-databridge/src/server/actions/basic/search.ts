@@ -2,7 +2,7 @@ import { Context, Next } from '@nocobase/actions';
 import { Collection, Field } from '@nocobase/database';
 import { resolveCollectionBasic } from '../../utils/resolve-collection-basic';
 import { resolveDataBasic } from '../../utils/fetch-assets-basic';
-import { parsePaginationParams, buildPaginatedMeta } from '../../utils/pagination';
+import { parsePaginationParams, buildPaginationMeta } from '../../utils/pagination';
 import { BasicAssetPayload } from '../../types/basic-asset-payload';
 
 /**
@@ -103,7 +103,7 @@ export async function basicSearch(ctx: Context, next: Next) {
   if (!searchFilter) {
     ctx.body = {
       data: [],
-      meta: buildPaginatedMeta(page, pageSize, 0),
+      meta: buildPaginationMeta(page, pageSize, 0),
     };
     ctx.withoutDataWrapping = true;
     return next();
@@ -141,7 +141,7 @@ export async function basicSearch(ctx: Context, next: Next) {
 
   ctx.body = {
     data,
-    meta: buildPaginatedMeta(page, pageSize, count),
+    meta: buildPaginationMeta(page, pageSize, count),
   };
   ctx.withoutDataWrapping = true;
 

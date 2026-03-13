@@ -1,7 +1,7 @@
 import { Context, Next } from '@nocobase/actions';
 import { Collection, Field } from '@nocobase/database';
 import { getPlatformBySlugOrThrow, getCollectionTitles, resolveCollection, resolveDataPlatform } from '../utils';
-import { parsePaginationParams, buildPaginatedMeta } from '../utils/pagination';
+import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination';
 
 /**
  * Text field types that support $includes search
@@ -116,7 +116,7 @@ export async function search(ctx: Context, next: Next) {
   if (collectionsToSearch.length === 0) {
     ctx.body = {
       data: {},
-      meta: buildPaginatedMeta(page, pageSize, 0),
+      meta: buildPaginationMeta(page, pageSize, 0),
     };
     ctx.withoutDataWrapping = true;
     return next();
@@ -171,7 +171,7 @@ async function nameSearchPaginated(
   if (lookupResults.length === 0) {
     ctx.body = {
       data: {},
-      meta: buildPaginatedMeta(page, pageSize, totalCount),
+      meta: buildPaginationMeta(page, pageSize, totalCount),
     };
     return;
   }
@@ -231,7 +231,7 @@ async function nameSearchPaginated(
 
   ctx.body = {
     data: result,
-    meta: buildPaginatedMeta(page, pageSize, totalCount),
+    meta: buildPaginationMeta(page, pageSize, totalCount),
   };
 }
 
@@ -272,7 +272,7 @@ async function propertySearchPaginated(
   if (totalCount === 0) {
     ctx.body = {
       data: {},
-      meta: buildPaginatedMeta(page, pageSize, 0),
+      meta: buildPaginationMeta(page, pageSize, 0),
     };
     return;
   }
@@ -343,6 +343,6 @@ async function propertySearchPaginated(
 
   ctx.body = {
     data: result,
-    meta: buildPaginatedMeta(page, pageSize, totalCount),
+    meta: buildPaginationMeta(page, pageSize, totalCount),
   };
 }

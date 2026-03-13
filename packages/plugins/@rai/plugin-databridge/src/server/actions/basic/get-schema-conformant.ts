@@ -5,8 +5,7 @@ import { resolveDataBasic, mapFilterKeys } from '../../utils/fetch-assets-basic'
 import {
   parsePaginationParams,
   parseMaxAssets,
-  buildPaginatedMeta,
-  buildGraphPaginatedMeta,
+  buildPaginationMeta,
 } from '../../utils/pagination';
 import { buildAssetGraph, fetchWindowRecords, dedupeKey } from '../../utils/build-asset-graph';
 import { BasicAssetPayload, RelationDescriptor } from '../../types/basic-asset-payload';
@@ -145,7 +144,7 @@ export async function basicGetSchemaConformant(ctx: Context, next: Next) {
 
     ctx.body = {
       data: flatItems,
-      meta: buildGraphPaginatedMeta(page, pageSize, totalCount, graph.truncated, maxAssets),
+      meta: buildPaginationMeta(page, pageSize, totalCount, graph.truncated, maxAssets),
     };
   } else {
     // ── Standard paginated query (no relations) ──
@@ -186,7 +185,7 @@ export async function basicGetSchemaConformant(ctx: Context, next: Next) {
 
     ctx.body = {
       data: flatItems,
-      meta: buildPaginatedMeta(page, pageSize, count),
+      meta: buildPaginationMeta(page, pageSize, count),
     };
   }
 

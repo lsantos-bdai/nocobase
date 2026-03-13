@@ -4,8 +4,7 @@ import { getPlatformBySlugOrThrow, getCollectionTitles, resolveDataPlatform } fr
 import {
   parsePaginationParams,
   parseMaxAssets,
-  buildPaginatedMeta,
-  buildGraphPaginatedMeta,
+  buildPaginationMeta,
 } from '../utils/pagination';
 import { buildAssetGraphFromRefs, fetchWindowRecords, dedupeKey, AssetRef } from '../utils/build-asset-graph';
 
@@ -131,7 +130,7 @@ export async function getSchemaConformant(ctx: Context, next: Next) {
 
     ctx.body = {
       data,
-      meta: buildGraphPaginatedMeta(page, pageSize, totalCount, graph.truncated, maxAssets),
+      meta: buildPaginationMeta(page, pageSize, totalCount, graph.truncated, maxAssets),
     };
   } else {
     // ── Standard paginated query (no relations) ──
@@ -152,7 +151,7 @@ export async function getSchemaConformant(ctx: Context, next: Next) {
     if (pageResults.length === 0) {
       ctx.body = {
         data: [],
-        meta: buildPaginatedMeta(page, pageSize, totalCount),
+        meta: buildPaginationMeta(page, pageSize, totalCount),
       };
       ctx.withoutDataWrapping = true;
       return next();
@@ -190,7 +189,7 @@ export async function getSchemaConformant(ctx: Context, next: Next) {
 
     ctx.body = {
       data,
-      meta: buildPaginatedMeta(page, pageSize, totalCount),
+      meta: buildPaginationMeta(page, pageSize, totalCount),
     };
   }
 

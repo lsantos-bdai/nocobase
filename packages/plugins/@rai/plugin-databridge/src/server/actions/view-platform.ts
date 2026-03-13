@@ -1,6 +1,6 @@
 import { Context, Next } from '@nocobase/actions';
 import { getPlatformOrThrow } from '../utils';
-import { parsePaginationParams, buildPaginatedMeta } from '../utils/pagination';
+import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination';
 
 export async function viewPlatform(ctx: Context, next: Next) {
   const platformIdentifier = ctx.action.params.platform || ctx.request.query.platform;
@@ -29,7 +29,7 @@ export async function viewPlatform(ctx: Context, next: Next) {
 
   ctx.body = {
     data: entries,
-    meta: buildPaginatedMeta(page, pageSize, count),
+    meta: buildPaginationMeta(page, pageSize, count),
   };
 
   ctx.withoutDataWrapping = true;

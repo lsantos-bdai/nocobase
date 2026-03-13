@@ -1,6 +1,6 @@
 import { Context, Next } from '@nocobase/actions';
 import { getPlatformBySlugOrThrow, getCollectionTitles } from '../utils';
-import { parsePaginationParams, buildPaginatedMeta } from '../utils/pagination';
+import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination';
 
 /**
  * List action - returns collections registered in a platform (paginated).
@@ -33,7 +33,7 @@ export async function list(ctx: Context, next: Next) {
   if (count === 0) {
     ctx.body = {
       data: [],
-      meta: buildPaginatedMeta(page, pageSize, 0),
+      meta: buildPaginationMeta(page, pageSize, 0),
     };
     ctx.withoutDataWrapping = true;
     return next();
@@ -53,7 +53,7 @@ export async function list(ctx: Context, next: Next) {
 
   ctx.body = {
     data,
-    meta: buildPaginatedMeta(page, pageSize, count),
+    meta: buildPaginationMeta(page, pageSize, count),
   };
   ctx.withoutDataWrapping = true;
   await next();

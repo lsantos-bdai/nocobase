@@ -26,20 +26,12 @@ export function validateBatchSize(ctx: Context, items: unknown[]): void {
 }
 
 /**
- * Standard paginated response metadata.
+ * Unified pagination metadata returned by all endpoints.
+ *
+ * When `get_relations=false`: `truncated` is always `false` and `max_assets` is `0`.
+ * When `get_relations=true`: `truncated` and `max_assets` reflect graph bounding.
  */
-export interface PaginatedMeta {
-  page: number;
-  pageSize: number;
-  count: number;
-  totalPage: number;
-}
-
-/**
- * Paginated response metadata for graph-based endpoints (get_relations=true).
- * Extends standard pagination with graph bounding info.
- */
-export interface GraphPaginatedMeta {
+export interface PaginationMeta {
   page: number;
   pageSize: number;
   count: number;
@@ -84,27 +76,15 @@ export function parsePaginationParams(
 }
 
 /**
- * Build pagination metadata for a paginated response.
+ * Build pagination metadata for a standard (no-relations) response.
  */
-export function buildPaginatedMeta(page: number, pageSize: number, count: number): PaginatedMeta {
-  return {
-    page,
-    pageSize,
-    count,
-    totalPage: Math.ceil(count / pageSize),
-  };
-}
-
-/**
- * Build pagination metadata for a graph-based response (with relation expansion).
- */
-export function buildGraphPaginatedMeta(
+export function buildPaginationMeta(
   page: number,
   pageSize: number,
   count: number,
-  truncated: boolean,
-  maxAssets: number,
-): GraphPaginatedMeta {
+  truncated: boolean = false,
+  maxAssets: number = 0,
+): PaginationMeta {
   return {
     page,
     pageSize,

@@ -21,7 +21,7 @@ import {
 } from './actions';
 import { DuplicateNamesError } from './errors/duplicate-names-error';
 import { getCollectionTitle } from './utils';
-import { parsePaginationParams, buildPaginatedMeta } from './utils/pagination';
+import { parsePaginationParams, buildPaginationMeta } from './utils/pagination';
 
 type HookHandler = (model: Model, options: { transaction?: Transaction }) => Promise<void>;
 
@@ -89,7 +89,7 @@ export class PluginDatabridgeServer extends Plugin {
 
       ctx.body = {
         data,
-        meta: buildPaginatedMeta(page, pageSize, count),
+        meta: buildPaginationMeta(page, pageSize, count),
       };
       ctx.withoutDataWrapping = true;
       await next();

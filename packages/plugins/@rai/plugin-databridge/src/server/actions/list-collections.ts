@@ -1,5 +1,5 @@
 import { Context, Next } from '@nocobase/actions';
-import { parsePaginationParams, buildPaginatedMeta } from '../utils/pagination';
+import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination';
 
 /**
  * List all collections with sync eligibility (paginated).
@@ -72,7 +72,7 @@ export async function listCollections(ctx: Context, next: Next) {
 
   ctx.body = {
     data,
-    meta: buildPaginatedMeta(page, pageSize, count),
+    meta: buildPaginationMeta(page, pageSize, count),
   };
   ctx.withoutDataWrapping = true;
   await next();
