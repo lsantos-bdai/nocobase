@@ -18,6 +18,29 @@ export default {
   ],
   components: {
     schemas: {
+      PaginatedMeta: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', description: 'Current page number (1-indexed)' },
+          pageSize: { type: 'integer', description: 'Items per page' },
+          count: { type: 'integer', description: 'Total number of matching records' },
+          totalPage: { type: 'integer', description: 'Total number of pages' },
+        },
+        required: ['page', 'pageSize', 'count', 'totalPage'],
+      },
+      GraphPaginatedMeta: {
+        type: 'object',
+        description: 'Pagination metadata for graph-based responses (when get_relations=true). Extends PaginatedMeta with graph bounding info.',
+        properties: {
+          page: { type: 'integer', description: 'Current page number (1-indexed)' },
+          pageSize: { type: 'integer', description: 'Items per page' },
+          count: { type: 'integer', description: 'Total number of assets in the graph (primaries + relations)' },
+          totalPage: { type: 'integer', description: 'Total number of pages' },
+          truncated: { type: 'boolean', description: 'True if BFS was stopped because the graph reached max_assets' },
+          max_assets: { type: 'integer', description: 'Maximum graph size (primaries + relations)' },
+        },
+        required: ['page', 'pageSize', 'count', 'totalPage', 'truncated', 'max_assets'],
+      },
       AssetData: {
         type: 'object',
         additionalProperties: true,
@@ -205,16 +228,7 @@ export default {
             items: { $ref: '#/components/schemas/BasicAssetPayload' },
             description: 'Page of BasicAssetPayload items',
           },
-          meta: {
-            type: 'object',
-            properties: {
-              page: { type: 'integer', description: 'Current page number (1-indexed)' },
-              pageSize: { type: 'integer', description: 'Items per page' },
-              count: { type: 'integer', description: 'Total number of matching records' },
-              totalPage: { type: 'integer', description: 'Total number of pages' },
-            },
-            required: ['page', 'pageSize', 'count', 'totalPage'],
-          },
+          meta: { $ref: '#/components/schemas/PaginatedMeta' },
         },
         required: ['data', 'meta'],
         description: 'Paginated list response with BasicAssetPayload items and pagination metadata.',
@@ -228,7 +242,7 @@ export default {
         tags: ['databridge'],
         summary: 'Get assets by platform and name(s)',
         description:
-          'Get one or more assets by name. Returns data in AssetPayloadMap format. Supports relation traversal to recursively fetch related assets.',
+          'Get one or more assets by name. Returns data in AssetPayloadMap format.\n\n**Without relations** (`get_relations=false`, default): Standard paginated query over matching lookup entries. `meta` = `PaginatedMeta`.\n\n**With relations** (`get_relations=true`): Two-phase graph + window approach. Phase 1 builds a lightweight asset graph (primaries + BFS-expanded relations) capped at `max_assets`. Phase 2 paginates over the graph. `meta` = `GraphPaginatedMeta` where `count` is total graph size.',
         parameters: [
           {
             name: 'platform',
@@ -248,6 +262,20 @@ export default {
             description: 'Asset name(s) to look up. Can be a single name or multiple names.',
           },
           {
+            name: 'page',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300). When get_relations=true, this is total items per page (primaries + relations).',
+          },
+          {
             name: 'get_relations',
             in: 'query',
             required: false,
@@ -262,17 +290,37 @@ export default {
             description:
               'How deep to traverse relations (only used when get_relations=true). 1 = direct relations only.',
           },
+          {
+            name: 'max_assets',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1000, minimum: 1 },
+            description: 'Maximum total graph size (primaries + relations) when get_relations=true (default: 1000). Ignored when get_relations=false. No upper limit. Returns 400 if not a positive integer.',
+          },
         ],
         responses: {
           200: {
-            description: 'Assets found (AssetPayloadMap format)',
+            description: 'Paginated assets. When get_relations=false, meta is PaginatedMeta. When get_relations=true, meta is GraphPaginatedMeta.',
             content: {
               'application/json': {
-                schema: { $ref: '#/components/schemas/AssetPayloadMap' },
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { $ref: '#/components/schemas/AssetPayloadMap' },
+                    meta: {
+                      oneOf: [
+                        { $ref: '#/components/schemas/PaginatedMeta' },
+                        { $ref: '#/components/schemas/GraphPaginatedMeta' },
+                      ],
+                      description: 'PaginatedMeta when get_relations=false; GraphPaginatedMeta when get_relations=true',
+                    },
+                  },
+                  required: ['data', 'meta'],
+                },
               },
             },
           },
-          400: { description: 'Missing required parameters' },
+          400: { description: 'Missing required parameters or invalid page/pageSize/max_assets' },
         },
       },
     },
@@ -282,7 +330,7 @@ export default {
         tags: ['databridge'],
         summary: 'Get assets in schema-conformant format with $schema URLs',
         description:
-          'Get one or more assets and return them as a flat array of data objects, each with a `$schema` property pointing to the GCS-hosted schema YAML for the asset\'s collection. The `env` parameter selects the GCS bucket (prod vs dev). Supports relation traversal.',
+          'Get one or more assets and return them as a flat array of data objects, each with a `$schema` property pointing to the GCS-hosted schema YAML for the asset\'s collection. The `env` parameter selects the GCS bucket (prod vs dev).\n\n**Without relations** (`get_relations=false`, default): Standard paginated query. `meta` = `PaginatedMeta`.\n\n**With relations** (`get_relations=true`): Two-phase graph + window approach. `meta` = `GraphPaginatedMeta` where `count` is total graph size.',
         parameters: [
           {
             name: 'platform',
@@ -309,6 +357,20 @@ export default {
             description: 'Schema environment. Selects which GCS bucket to use for $schema URLs.',
           },
           {
+            name: 'page',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300). When get_relations=true, this is total items per page.',
+          },
+          {
             name: 'get_relations',
             in: 'query',
             required: false,
@@ -323,44 +385,67 @@ export default {
             description:
               'How deep to traverse relations (only used when get_relations=true). 1 = direct relations only.',
           },
+          {
+            name: 'max_assets',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1000, minimum: 1 },
+            description: 'Maximum total graph size when get_relations=true (default: 1000). Ignored when get_relations=false. No upper limit. Returns 400 if not a positive integer.',
+          },
         ],
         responses: {
           200: {
-            description: 'Schema-conformant asset data array',
+            description: 'Schema-conformant asset data array (paginated). Meta is PaginatedMeta or GraphPaginatedMeta depending on get_relations.',
             content: {
               'application/json': {
                 schema: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      $schema: {
-                        type: 'string',
-                        description: 'URL to the GCS-hosted schema YAML for this asset\'s collection',
-                        example:
-                          'https://storage.cloud.google.com/schema-management-proj-mle-396318/bdai/ingestion/ArmStation/latest/spec/ArmStation.yaml',
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          $schema: {
+                            type: 'string',
+                            description: 'URL to the GCS-hosted schema YAML for this asset\'s collection',
+                            example:
+                              'https://storage.cloud.google.com/schema-management-proj-mle-396318/bdai/ingestion/ArmStation/latest/spec/ArmStation.yaml',
+                          },
+                        },
+                        additionalProperties: true,
+                        description:
+                          'Asset data with all collection fields as top-level properties, plus a $schema URL.',
                       },
                     },
-                    additionalProperties: true,
-                    description:
-                      'Asset data with all collection fields as top-level properties, plus a $schema URL.',
+                    meta: {
+                      oneOf: [
+                        { $ref: '#/components/schemas/PaginatedMeta' },
+                        { $ref: '#/components/schemas/GraphPaginatedMeta' },
+                      ],
+                      description: 'PaginatedMeta when get_relations=false; GraphPaginatedMeta when get_relations=true',
+                    },
                   },
+                  required: ['data', 'meta'],
                 },
-                example: [
-                  {
-                    $schema:
-                      'https://storage.cloud.google.com/schema-management-proj-mle-396318/bdai/ingestion/ArmStation/latest/spec/ArmStation.yaml',
-                    id: 3,
-                    name: 'Station 3',
-                    table_type: 'Table',
-                    left_gpu: 'WS39',
-                    right_gpu: 'WS39',
-                  },
-                ],
+                example: {
+                  data: [
+                    {
+                      $schema:
+                        'https://storage.cloud.google.com/schema-management-proj-mle-396318/bdai/ingestion/ArmStation/latest/spec/ArmStation.yaml',
+                      id: 3,
+                      name: 'Station 3',
+                      table_type: 'Table',
+                      left_gpu: 'WS39',
+                      right_gpu: 'WS39',
+                    },
+                  ],
+                  meta: { page: 1, pageSize: 50, count: 1, totalPage: 1 },
+                },
               },
             },
           },
-          400: { description: 'Missing required parameters or invalid env value' },
+          400: { description: 'Missing required parameters or invalid env/page/pageSize/max_assets value' },
         },
       },
     },
@@ -368,9 +453,9 @@ export default {
       get: {
         operationId: 'searchAssets',
         tags: ['databridge'],
-        summary: 'Search assets across collections',
+        summary: 'Search assets across collections (paginated)',
         description:
-          'Search for assets across all collections (or a specific collection) in a platform. Performs case-insensitive substring matching across text fields and relation name fields.',
+          'Search for assets across all collections (or a specific collection) in a platform. Supports two modes:\n\n**Name search** (default): Searches asset names in the platform lookup table.\n\n**Property search** (`propertySearch=true`): Case-insensitive substring matching across all text fields and relation name fields.\n\nBoth modes use `page`/`pageSize` pagination.',
         parameters: [
           {
             name: 'platform',
@@ -395,11 +480,18 @@ export default {
               'Limit search to a specific collection. Accepts internal name (e.g., "t_98x374ie2j7") or human-readable title (e.g., "ArmStation") — matching is case-insensitive. Returns 409 if the title matches multiple collections within the platform.',
           },
           {
-            name: 'limit',
+            name: 'page',
             in: 'query',
             required: false,
-            schema: { type: 'integer', default: 10, maximum: 100 },
-            description: 'Maximum number of results to return (default: 10, max: 100)',
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300)',
           },
           {
             name: 'propertySearch',
@@ -412,14 +504,21 @@ export default {
         ],
         responses: {
           200: {
-            description: 'Search results (AssetPayloadMap format)',
+            description: 'Paginated search results',
             content: {
               'application/json': {
-                schema: { $ref: '#/components/schemas/AssetPayloadMap' },
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { $ref: '#/components/schemas/AssetPayloadMap' },
+                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
+                  },
+                  required: ['data', 'meta'],
+                },
               },
             },
           },
-          400: { description: 'Missing required parameters' },
+          400: { description: 'Missing required parameters or invalid page/pageSize' },
           404: { description: 'Platform or collection not found' },
           409: { description: 'Ambiguous collection title — matches multiple collections within the platform' },
         },
@@ -429,8 +528,8 @@ export default {
       get: {
         operationId: 'listCollections',
         tags: ['databridge'],
-        summary: 'List collections in a platform',
-        description: 'Returns a list of all collections registered in a platform with their names and titles.',
+        summary: 'List collections in a platform (paginated)',
+        description: 'Returns a paginated list of all collections registered in a platform with their names and titles.',
         parameters: [
           {
             name: 'platform',
@@ -439,63 +538,47 @@ export default {
             schema: { type: 'string' },
             description: 'Platform slug',
           },
-        ],
-        responses: {
-          200: {
-            description: 'List of collections',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      name: { type: 'string', description: 'Internal collection name' },
-                      title: { type: 'string', description: 'Human-readable collection title' },
-                    },
-                  },
-                },
-              },
-            },
-          },
-          400: { description: 'Missing required parameters' },
-          404: { description: 'Platform not found' },
-        },
-      },
-    },
-    '/databridge:index': {
-      get: {
-        operationId: 'indexAssets',
-        tags: ['databridge'],
-        summary: 'Index all asset names by collection',
-        description:
-          'Returns a dictionary where each key is a collection title and the value is a list of all asset names in that collection.',
-        parameters: [
           {
-            name: 'platform',
+            name: 'page',
             in: 'query',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Platform slug',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300)',
           },
         ],
         responses: {
           200: {
-            description: 'Asset names indexed by collection',
+            description: 'Paginated list of collections',
             content: {
               'application/json': {
                 schema: {
                   type: 'object',
-                  additionalProperties: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    description: 'List of asset names in this collection',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          name: { type: 'string', description: 'Internal collection name' },
+                          title: { type: 'string', description: 'Human-readable collection title' },
+                        },
+                      },
+                    },
+                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
                   },
+                  required: ['data', 'meta'],
                 },
               },
             },
           },
-          400: { description: 'Missing required parameters' },
+          400: { description: 'Missing required parameters or invalid page/pageSize' },
           404: { description: 'Platform not found' },
         },
       },
@@ -506,7 +589,7 @@ export default {
         tags: ['databridge'],
         summary: 'Bulk update assets using a list of AssetPayload objects',
         description:
-          'Update one or more assets. The request body is an array of AssetPayload objects. Each asset is identified by `data.name` (looked up in the platform\'s lookup table).\n\nThe `collection` field is optional — if omitted, the collection is derived from the platform lookup table. When provided, it accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections.\n\nThe `data.id` field is not required — the record is identified by `data.name` via the platform lookup table.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
+          'Update one or more assets. The request body is an array of AssetPayload objects (maximum 100 items per request). Each asset is identified by `data.name` (looked up in the platform\'s lookup table).\n\nThe `collection` field is optional — if omitted, the collection is derived from the platform lookup table. When provided, it accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections.\n\nThe `data.id` field is not required — the record is identified by `data.name` via the platform lookup table.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
@@ -579,7 +662,7 @@ export default {
         tags: ['databridge'],
         summary: 'Bulk create assets using a list of AssetPayload objects',
         description:
-          'Create one or more assets. The request body is an array of AssetPayload objects. The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nThe `collection` field is required and accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections within the platform.\n\nThe `id` field in data is ignored (auto-generated). The `data.name` field is required and must be unique within the platform. All operations are ACID — the entire batch succeeds or fails atomically.',
+          'Create one or more assets. The request body is an array of AssetPayload objects (maximum 100 items per request). The platform is specified per-asset in the payload (no query parameter). Supports multi-platform operations in a single request.\n\nThe `collection` field is required and accepts an internal name or human-readable title (case-insensitive). Returns 409 if the title matches multiple collections within the platform.\n\nThe `id` field in data is ignored (auto-generated). The `data.name` field is required and must be unique within the platform. All operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
@@ -661,7 +744,7 @@ export default {
         tags: ['databridge'],
         summary: 'Bulk delete assets using a list of AssetPayload objects',
         description:
-          'Delete one or more assets. The request body is an array of AssetPayload objects. Each asset is identified by `data.name` (looked up in the platform\'s lookup table).\n\nThe `platform` and `data` (with `name`) fields are required per asset. The `collection` field is optional — when omitted, the collection is derived from the platform lookup table. When provided, it accepts an internal name or title (case-insensitive, 409 on ambiguity). When `data.id` is provided, it overrides the lookup table ID.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
+          'Delete one or more assets. The request body is an array of AssetPayload objects (maximum 100 items per request). Each asset is identified by `data.name` (looked up in the platform\'s lookup table).\n\nThe `platform` and `data` (with `name`) fields are required per asset. The `collection` field is optional — when omitted, the collection is derived from the platform lookup table. When provided, it accepts an internal name or title (case-insensitive, 409 on ambiguity). When `data.id` is provided, it overrides the lookup table ID.\n\nAll operations are ACID — the entire batch succeeds or fails atomically.',
         requestBody: {
           required: true,
           content: {
@@ -732,9 +815,9 @@ export default {
       get: {
         operationId: 'basicGetAssets',
         tags: ['databridgeBasic'],
-        summary: 'Get assets by collection and filter (platform-free)',
+        summary: 'Get/list assets by collection with optional filter (platform-free, paginated)',
         description:
-          'Get assets from a collection using a JSON filter. Returns a list of BasicAssetPayload objects with relation descriptors. Supports BFS relation expansion.',
+          'Get assets from a collection with pagination.\n\n**Without relations** (`get_relations=false`, default): Standard paginated query over primary records. `page`/`pageSize` control the window. `meta` = `{ page, pageSize, count, totalPage }`.\n\n**With relations** (`get_relations=true`): Two-phase graph + window approach. Phase 1 builds a lightweight asset graph (primaries + BFS-expanded relations) capped at `max_assets`. Phase 2 paginates over the graph — `pageSize` applies to total items (primaries + relations combined). `meta` = `{ page, pageSize, count, totalPage, truncated, max_assets }` where `count` is total graph size.',
         parameters: [
           {
             name: 'collection',
@@ -747,9 +830,39 @@ export default {
           {
             name: 'filter',
             in: 'query',
-            required: true,
+            required: false,
             schema: { type: 'string' },
-            description: 'JSON filter object, e.g. {"name":"Amber"} or {"id":5}',
+            description: 'JSON filter object, e.g. {"name":"Amber"} or {"id":5}. Omit to return all records.',
+          },
+          {
+            name: 'page',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300). When get_relations=true, this is the total items per page (primaries + relations).',
+          },
+          {
+            name: 'sort',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'JSON array of sort keys, e.g. ["-createdAt","name"]. Prefix "-" for descending. Accepts human-readable field names.',
+          },
+          {
+            name: 'fields',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'JSON array of field names to include, e.g. ["name","serial_number"]. Accepts human-readable field names. Omit to return all fields.',
           },
           {
             name: 'get_relations',
@@ -757,7 +870,7 @@ export default {
             required: false,
             schema: { type: 'boolean', default: false },
             description:
-              'If true, BFS-append related records as separate BasicAssetPayload items (deduplicated).',
+              'If true, BFS-expand related records into the asset graph. pageSize then applies to total items (primaries + relations).',
           },
           {
             name: 'relation_depth',
@@ -766,20 +879,62 @@ export default {
             schema: { type: 'integer', default: 1, minimum: 0 },
             description: 'How deep to traverse relations (only used when get_relations=true).',
           },
+          {
+            name: 'max_assets',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1000, minimum: 1 },
+            description: 'Maximum total graph size (primaries + relations) when get_relations=true (default: 1000). Ignored when get_relations=false. Returns 400 if not a positive integer.',
+          },
         ],
         responses: {
           200: {
-            description: 'Assets found',
+            description: 'Paginated assets. When get_relations=false, meta is PaginatedMeta. When get_relations=true, meta is GraphPaginatedMeta.',
             content: {
               'application/json': {
                 schema: {
-                  type: 'array',
-                  items: { $ref: '#/components/schemas/BasicAssetPayload' },
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/BasicAssetPayload' },
+                      description: 'Page of BasicAssetPayload items (primaries + relations when get_relations=true)',
+                    },
+                    meta: {
+                      oneOf: [
+                        { $ref: '#/components/schemas/PaginatedMeta' },
+                        { $ref: '#/components/schemas/GraphPaginatedMeta' },
+                      ],
+                      description: 'PaginatedMeta when get_relations=false; GraphPaginatedMeta when get_relations=true',
+                    },
+                  },
+                  required: ['data', 'meta'],
+                },
+                example: {
+                  data: [
+                    {
+                      collection: 't_98x374ie2j7',
+                      collection_title: 'ArmStation',
+                      data: {
+                        id: 3,
+                        name: 'Station 3',
+                        table_type: 'Table',
+                      },
+                    },
+                  ],
+                  meta: {
+                    page: 1,
+                    pageSize: 50,
+                    count: 38,
+                    totalPage: 1,
+                    truncated: false,
+                    max_assets: 1000,
+                  },
                 },
               },
             },
           },
-          400: { description: 'Missing required parameters or invalid filter JSON' },
+          400: { description: 'Missing required parameters, invalid filter/sort/fields JSON, or invalid page/pageSize/max_assets' },
           404: { description: 'Collection not found' },
           409: { description: 'Ambiguous collection title' },
         },
@@ -789,9 +944,9 @@ export default {
       get: {
         operationId: 'basicGetSchemaConformant',
         tags: ['databridgeBasic'],
-        summary: 'Get assets in schema-conformant format (platform-free)',
+        summary: 'Get assets in schema-conformant format (platform-free, paginated)',
         description:
-          'Get assets and return them as a flat array with `$schema` URLs. Relation fields show name strings (falling back to stringified IDs). The `env` parameter selects the GCS bucket.',
+          'Get assets and return them as a flat array with `$schema` URLs. Relation fields show name strings (falling back to stringified IDs). The `env` parameter selects the GCS bucket.\n\n**Without relations** (`get_relations=false`, default): Standard paginated query. `meta` = `{ page, pageSize, count, totalPage }`.\n\n**With relations** (`get_relations=true`): Two-phase graph + window approach. `pageSize` applies to total items. `meta` = `{ page, pageSize, count, totalPage, truncated, max_assets }`.',
         parameters: [
           {
             name: 'collection',
@@ -803,9 +958,9 @@ export default {
           {
             name: 'filter',
             in: 'query',
-            required: true,
+            required: false,
             schema: { type: 'string' },
-            description: 'JSON filter object',
+            description: 'JSON filter object. Omit to return all records.',
           },
           {
             name: 'env',
@@ -815,11 +970,25 @@ export default {
             description: 'Schema environment. Selects which GCS bucket to use for $schema URLs.',
           },
           {
+            name: 'page',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300). When get_relations=true, this is total items per page.',
+          },
+          {
             name: 'get_relations',
             in: 'query',
             required: false,
             schema: { type: 'boolean', default: false },
-            description: 'If true, include related records in the output.',
+            description: 'If true, include related records in the output. pageSize applies to total items.',
           },
           {
             name: 'relation_depth',
@@ -828,29 +997,49 @@ export default {
             schema: { type: 'integer', default: 1, minimum: 0 },
             description: 'How deep to traverse relations.',
           },
+          {
+            name: 'max_assets',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1000, minimum: 1 },
+            description: 'Maximum total graph size when get_relations=true (default: 1000). Ignored when get_relations=false.',
+          },
         ],
         responses: {
           200: {
-            description: 'Schema-conformant asset data array',
+            description: 'Schema-conformant asset data array (paginated). Meta is PaginatedMeta or GraphPaginatedMeta depending on get_relations.',
             content: {
               'application/json': {
                 schema: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      $schema: {
-                        type: 'string',
-                        description: 'URL to the GCS-hosted schema YAML',
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          $schema: {
+                            type: 'string',
+                            description: 'URL to the GCS-hosted schema YAML',
+                          },
+                        },
+                        additionalProperties: true,
                       },
                     },
-                    additionalProperties: true,
+                    meta: {
+                      oneOf: [
+                        { $ref: '#/components/schemas/PaginatedMeta' },
+                        { $ref: '#/components/schemas/GraphPaginatedMeta' },
+                      ],
+                      description: 'PaginatedMeta when get_relations=false; GraphPaginatedMeta when get_relations=true',
+                    },
                   },
+                  required: ['data', 'meta'],
                 },
               },
             },
           },
-          400: { description: 'Missing required parameters or invalid filter/env' },
+          400: { description: 'Missing required parameters or invalid filter/env/page/pageSize/max_assets' },
           404: { description: 'Collection not found' },
           409: { description: 'Ambiguous collection title' },
         },
@@ -860,9 +1049,9 @@ export default {
       get: {
         operationId: 'basicSearchAssets',
         tags: ['databridgeBasic'],
-        summary: 'Search assets in a collection (platform-free)',
+        summary: 'Search assets in a collection (platform-free, paginated)',
         description:
-          'Search a single collection for records matching a search term. Always searches all text fields and relation .name paths. Returns list of BasicAssetPayload with relation descriptors.',
+          'Search a single collection for records matching a search term. Always searches all text fields and relation .name paths. Returns paginated BasicAssetPayload items with relation descriptors.',
         parameters: [
           {
             name: 'collection',
@@ -879,48 +1068,6 @@ export default {
             description: 'Search term (case-insensitive substring match)',
           },
           {
-            name: 'limit',
-            in: 'query',
-            required: false,
-            schema: { type: 'integer', default: 10, maximum: 100 },
-            description: 'Maximum number of results (default: 10, max: 100)',
-          },
-        ],
-        responses: {
-          200: {
-            description: 'Search results',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'array',
-                  items: { $ref: '#/components/schemas/BasicAssetPayload' },
-                },
-              },
-            },
-          },
-          400: { description: 'Missing required parameters' },
-          404: { description: 'Collection not found' },
-          409: { description: 'Ambiguous collection title' },
-        },
-      },
-    },
-    '/databridgeBasic:list': {
-      get: {
-        operationId: 'basicListAssets',
-        tags: ['databridgeBasic'],
-        summary: 'Paginated list of assets in a collection (platform-free)',
-        description:
-          'List assets from a collection with pagination, sorting, filtering, and field selection. Returns BasicAssetPayload items with relation descriptors and pagination metadata.',
-        parameters: [
-          {
-            name: 'collection',
-            in: 'query',
-            required: true,
-            schema: { type: 'string' },
-            description:
-              'Collection name or title (case-insensitive). Returns 409 if ambiguous.',
-          },
-          {
             name: 'page',
             in: 'query',
             required: false,
@@ -931,63 +1078,20 @@ export default {
             name: 'pageSize',
             in: 'query',
             required: false,
-            schema: { type: 'integer', default: 20, minimum: 1, maximum: 100 },
-            description: 'Items per page (default: 20, max: 100)',
-          },
-          {
-            name: 'sort',
-            in: 'query',
-            required: false,
-            schema: { type: 'string' },
-            description:
-              'JSON array of sort keys, e.g. ["-createdAt","name"]. Prefix "-" for descending. Accepts human-readable field names.',
-          },
-          {
-            name: 'filter',
-            in: 'query',
-            required: false,
-            schema: { type: 'string' },
-            description:
-              'JSON filter object, e.g. {"name":"Amber"}. Accepts human-readable field names.',
-          },
-          {
-            name: 'fields',
-            in: 'query',
-            required: false,
-            schema: { type: 'string' },
-            description:
-              'JSON array of field names to include, e.g. ["name","serial_number"]. Accepts human-readable field names. Omit to return all fields.',
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300)',
           },
         ],
         responses: {
           200: {
-            description: 'Paginated list of assets',
+            description: 'Paginated search results',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/BasicListResponse' },
-                example: {
-                  data: [
-                    {
-                      collection: 't_98x374ie2j7',
-                      collection_title: 'ArmStation',
-                      data: {
-                        id: 3,
-                        name: 'Station 3',
-                        table_type: 'Table',
-                      },
-                    },
-                  ],
-                  meta: {
-                    page: 1,
-                    pageSize: 20,
-                    count: 42,
-                    totalPage: 3,
-                  },
-                },
               },
             },
           },
-          400: { description: 'Missing required parameters or invalid sort/filter/fields JSON' },
+          400: { description: 'Missing required parameters or invalid page/pageSize' },
           404: { description: 'Collection not found' },
           409: { description: 'Ambiguous collection title' },
         },
@@ -999,7 +1103,7 @@ export default {
         tags: ['databridgeBasic'],
         summary: 'Bulk create assets (platform-free)',
         description:
-          'Create one or more assets. The request body is an array of BasicAssetPayload objects. `collection` and `data` are required per item. `data.id` is ignored (auto-generated). Relation values must be raw FK IDs. All operations are ACID.',
+          'Create one or more assets. The request body is an array of BasicAssetPayload objects (maximum 100 items per request). `collection` and `data` are required per item. `data.id` is ignored (auto-generated). Relation values must be raw FK IDs. All operations are ACID.',
         requestBody: {
           required: true,
           content: {
@@ -1049,7 +1153,7 @@ export default {
         tags: ['databridgeBasic'],
         summary: 'Bulk update assets by data.id (platform-free)',
         description:
-          'Update one or more assets. Each item requires `collection`, `data` (with `id`). The record is identified by `data.id`. Relation values must be raw FK IDs. All operations are ACID.',
+          'Update one or more assets. Each item requires `collection`, `data` (with `id`). The record is identified by `data.id`. Maximum 100 items per request. Relation values must be raw FK IDs. All operations are ACID.',
         requestBody: {
           required: true,
           content: {
@@ -1099,7 +1203,7 @@ export default {
         tags: ['databridgeBasic'],
         summary: 'Bulk delete assets by data.id (platform-free)',
         description:
-          'Delete one or more assets. Each item requires `collection`, `data` (with `id`). Two-pass: verify all records exist, then delete. All operations are ACID.',
+          'Delete one or more assets. Each item requires `collection`, `data` (with `id`). Maximum 100 items per request. Two-pass: verify all records exist, then delete. All operations are ACID.',
         requestBody: {
           required: true,
           content: {
@@ -1144,26 +1248,50 @@ export default {
       get: {
         operationId: 'listSyncableCollections',
         tags: ['databridge_platforms'],
-        summary: 'List all collections with sync eligibility',
+        summary: 'List all collections with sync eligibility (paginated)',
+        parameters: [
+          {
+            name: 'page',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300)',
+          },
+        ],
         responses: {
           200: {
-            description: 'List of collections',
+            description: 'Paginated list of collections',
             content: {
               'application/json': {
                 schema: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      name: { type: 'string', description: 'Internal collection name' },
-                      title: { type: 'string', description: 'Human-readable collection title' },
-                      hasNameField: { type: 'boolean', description: 'Whether collection has a name field' },
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          name: { type: 'string', description: 'Internal collection name' },
+                          title: { type: 'string', description: 'Human-readable collection title' },
+                          hasNameField: { type: 'boolean', description: 'Whether collection has a name field' },
+                        },
+                      },
                     },
+                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
                   },
+                  required: ['data', 'meta'],
                 },
               },
             },
           },
+          400: { description: 'Invalid page/pageSize' },
         },
       },
     },
@@ -1171,29 +1299,53 @@ export default {
       get: {
         operationId: 'listPlatforms',
         tags: ['databridge_platforms'],
-        summary: 'List all platforms',
+        summary: 'List all platforms (paginated)',
+        parameters: [
+          {
+            name: 'page',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
+          },
+          {
+            name: 'pageSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300)',
+          },
+        ],
         responses: {
           200: {
-            description: 'List of platforms',
+            description: 'Paginated list of platforms',
             content: {
               'application/json': {
                 schema: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      id: { type: 'integer' },
-                      name: { type: 'string', description: 'Display name' },
-                      slug: { type: 'string', description: 'URL-safe identifier' },
-                      description: { type: 'string' },
-                      createdAt: { type: 'string', format: 'date-time' },
-                      updatedAt: { type: 'string', format: 'date-time' },
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'integer' },
+                          name: { type: 'string', description: 'Display name' },
+                          slug: { type: 'string', description: 'URL-safe identifier' },
+                          description: { type: 'string' },
+                          createdAt: { type: 'string', format: 'date-time' },
+                          updatedAt: { type: 'string', format: 'date-time' },
+                        },
+                      },
                     },
+                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
                   },
+                  required: ['data', 'meta'],
                 },
               },
             },
           },
+          400: { description: 'Invalid page/pageSize' },
         },
       },
     },
@@ -1479,7 +1631,7 @@ export default {
       get: {
         operationId: 'viewLookup',
         tags: ['databridge_platforms'],
-        summary: 'View platform lookup entries',
+        summary: 'View platform lookup entries (paginated)',
         parameters: [
           {
             name: 'platform',
@@ -1491,14 +1643,16 @@ export default {
           {
             name: 'page',
             in: 'query',
-            schema: { type: 'integer', default: 1 },
-            description: 'Page number',
+            required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Page number (1-indexed, default: 1)',
           },
           {
             name: 'pageSize',
             in: 'query',
-            schema: { type: 'integer', default: 50 },
-            description: 'Items per page',
+            required: false,
+            schema: { type: 'integer', default: 50, minimum: 1, maximum: 300 },
+            description: 'Items per page (default: 50, max: 300)',
           },
         ],
         responses: {
@@ -1521,20 +1675,14 @@ export default {
                         },
                       },
                     },
-                    meta: {
-                      type: 'object',
-                      properties: {
-                        page: { type: 'integer' },
-                        pageSize: { type: 'integer' },
-                        total: { type: 'integer' },
-                      },
-                    },
+                    meta: { $ref: '#/components/schemas/PaginatedMeta' },
                   },
+                  required: ['data', 'meta'],
                 },
               },
             },
           },
-          400: { description: 'Missing platform parameter' },
+          400: { description: 'Missing platform parameter or invalid page/pageSize' },
           404: { description: 'Platform not found' },
         },
       },

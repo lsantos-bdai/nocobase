@@ -5,7 +5,6 @@ import {
   getSchemaConformant,
   search,
   list,
-  indexAssets,
   update,
   create,
   deleteAssets,
@@ -22,6 +21,7 @@ import {
 } from './actions';
 import { DuplicateNamesError } from './errors/duplicate-names-error';
 import { getCollectionTitle } from './utils';
+import { parsePaginationParams, buildPaginatedMeta } from './utils/pagination';
 
 type HookHandler = (model: Model, options: { transaction?: Transaction }) => Promise<void>;
 
@@ -49,7 +49,6 @@ export class PluginDatabridgeServer extends Plugin {
         getSchemaConformant,
         search,
         list,
-        index: indexAssets,
         listCollections,
         bulkUpdate: update,
         bulkCreate: create,
@@ -64,7 +63,6 @@ export class PluginDatabridgeServer extends Plugin {
         get: basic.basicGet,
         getSchemaConformant: basic.basicGetSchemaConformant,
         search: basic.basicSearch,
-        list: basic.basicList,
         bulkCreate: basic.basicCreate,
         bulkUpdate: basic.basicUpdate,
         bulkDelete: basic.basicDelete,
@@ -73,8 +71,26 @@ export class PluginDatabridgeServer extends Plugin {
 
     // Register custom actions for databridge_platforms (overrides default)
     this.app.resourceManager.registerActionHandler('databridge_platforms:list', async (ctx: any, next: any) => {
+      const { page: pageStr, pageSize: pageSizeStr } = ctx.request.query as {
+        page?: string;
+        pageSize?: string;
+      };
+      const { page, pageSize } = parsePaginationParams(ctx, pageStr, pageSizeStr);
+
       const repo = ctx.db.getRepository('databridge_platforms');
-      ctx.body = await repo.find();
+      const [data, count] = await Promise.all([
+        repo.find({
+          limit: pageSize,
+          offset: (page - 1) * pageSize,
+          sort: ['name'],
+        }),
+        repo.count(),
+      ]);
+
+      ctx.body = {
+        data,
+        meta: buildPaginatedMeta(page, pageSize, count),
+      };
       ctx.withoutDataWrapping = true;
       await next();
     });
@@ -96,7 +112,6 @@ export class PluginDatabridgeServer extends Plugin {
         'databridge:getSchemaConformant',
         'databridge:search',
         'databridge:list',
-        'databridge:index',
         'databridge:listCollections',
         'databridge:bulkUpdate',
         'databridge:bulkCreate',
@@ -104,7 +119,6 @@ export class PluginDatabridgeServer extends Plugin {
         'databridgeBasic:get',
         'databridgeBasic:getSchemaConformant',
         'databridgeBasic:search',
-        'databridgeBasic:list',
         'databridgeBasic:bulkCreate',
         'databridgeBasic:bulkUpdate',
         'databridgeBasic:bulkDelete',
@@ -112,10 +126,10 @@ export class PluginDatabridgeServer extends Plugin {
     });
 
     // Allow logged-in users to use databridge actions
-    this.app.acl.allow('databridge', ['get', 'getSchemaConformant', 'search', 'list', 'index', 'listCollections', 'bulkUpdate', 'bulkCreate', 'bulkDelete'], 'loggedIn');
+    this.app.acl.allow('databridge', ['get', 'getSchemaConformant', 'search', 'list', 'listCollections', 'bulkUpdate', 'bulkCreate', 'bulkDelete'], 'loggedIn');
 
     // Allow logged-in users to use databridgeBasic actions
-    this.app.acl.allow('databridgeBasic', ['get', 'getSchemaConformant', 'search', 'list', 'bulkCreate', 'bulkUpdate', 'bulkDelete'], 'loggedIn');
+    this.app.acl.allow('databridgeBasic', ['get', 'getSchemaConformant', 'search', 'bulkCreate', 'bulkUpdate', 'bulkDelete'], 'loggedIn');
 
     // Allow databridge_platforms actions for users with pm.databridge snippet
     this.app.acl.allow(

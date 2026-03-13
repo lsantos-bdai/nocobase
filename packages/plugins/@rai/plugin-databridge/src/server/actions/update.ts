@@ -10,6 +10,7 @@ import {
   validateAssetPayloadList,
   AssetPayload,
   resolveCollection,
+  validateBatchSize,
 } from '../utils';
 
 interface UpdateResult {
@@ -54,6 +55,9 @@ export async function update(ctx: Context, next: Next) {
     ctx.throw(400, (validation as { valid: false; error: string }).error);
     return;
   }
+
+  // Enforce batch size limit
+  validateBatchSize(ctx, validation.assets);
 
   // Group assets by platform for efficient processing
   const byPlatform = new Map<string, AssetPayload[]>();

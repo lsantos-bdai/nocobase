@@ -1,7 +1,24 @@
 import { Context, Next } from '@nocobase/actions';
+import { parsePaginationParams, buildPaginatedMeta } from '../utils/pagination';
 
+/**
+ * List all collections with sync eligibility (paginated).
+ *
+ * Query parameters:
+ * - platformId: Optional — if provided, includes isSynced status for each collection
+ * - page: Page number (default 1)
+ * - pageSize: Items per page (default 50, max 300)
+ *
+ * Response: { data: [{ name, title, hasNameField, isSynced }], meta: { page, pageSize, count, totalPage } }
+ */
 export async function listCollections(ctx: Context, next: Next) {
   const { platformId } = ctx.action.params;
+  const { page: pageStr, pageSize: pageSizeStr } = ctx.request.query as {
+    page?: string;
+    pageSize?: string;
+  };
+
+  const { page, pageSize } = parsePaginationParams(ctx, pageStr, pageSizeStr);
 
   // Get all collections from the collections table
   const allCollections = await ctx.db.getRepository('collections').find({
@@ -27,7 +44,7 @@ export async function listCollections(ctx: Context, next: Next) {
     }
   }
 
-  const result = allCollections.map((coll: any) => {
+  const allResults = allCollections.map((coll: any) => {
     const collection = ctx.db.getCollection(coll.name);
     const hasNameField = collection ? !!collection.getField('name') : false;
 
@@ -40,14 +57,23 @@ export async function listCollections(ctx: Context, next: Next) {
   });
 
   // Sort: collections with name field first, then alphabetically
-  result.sort((a: any, b: any) => {
+  allResults.sort((a: any, b: any) => {
     if (a.hasNameField !== b.hasNameField) {
       return a.hasNameField ? -1 : 1;
     }
     return a.title.localeCompare(b.title);
   });
 
-  ctx.body = result;
+  const count = allResults.length;
+
+  // Apply pagination
+  const offset = (page - 1) * pageSize;
+  const data = allResults.slice(offset, offset + pageSize);
+
+  ctx.body = {
+    data,
+    meta: buildPaginatedMeta(page, pageSize, count),
+  };
   ctx.withoutDataWrapping = true;
   await next();
 }

@@ -261,3 +261,31 @@ export class AssetNotFoundError extends Error {
     this.assetName = assetName;
   }
 }
+
+/**
+ * Map user-friendly sort keys to internal field names.
+ * Sort entries look like "name", "-createdAt" (prefix "-" = descending).
+ * Unknown keys are passed through as-is (supports direct internal field names).
+ */
+export function mapSortKeys(collection: Collection, sortArr: string[]): string[] {
+  const fieldMapping = buildFieldMapping(collection);
+  return sortArr.map((entry) => {
+    const desc = entry.startsWith('-');
+    const key = desc ? entry.slice(1) : entry;
+    const field = fieldMapping.get(key);
+    const internalName = field ? field.name : key;
+    return desc ? `-${internalName}` : internalName;
+  });
+}
+
+/**
+ * Map user-friendly field names to internal field names.
+ * Unknown keys are passed through as-is (supports direct internal field names).
+ */
+export function mapFieldNames(collection: Collection, fieldArr: string[]): string[] {
+  const fieldMapping = buildFieldMapping(collection);
+  return fieldArr.map((key) => {
+    const field = fieldMapping.get(key);
+    return field ? field.name : key;
+  });
+}

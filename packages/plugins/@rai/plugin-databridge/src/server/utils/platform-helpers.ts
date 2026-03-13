@@ -1,5 +1,5 @@
 import { Context } from '@nocobase/actions';
-import { Database, Repository } from '@nocobase/database';
+import { Collection, Database, Repository } from '@nocobase/database';
 
 export interface Platform {
   id: number | string;
@@ -176,4 +176,56 @@ export function validateCollectionHasNameField(ctx: Context, collectionName: str
   if (!coll.getField('name')) {
     ctx.throw(400, `Collection '${collectionName}' must have a 'name' field`);
   }
+}
+
+/**
+ * Normalize a field title to a snake_case key.
+ * "Franka Hand Gripper" -> "franka_hand_gripper"
+ */
+function normalizeFieldName(title: string): string {
+  return title.toLowerCase().replace(/\s+/g, '_');
+}
+
+/**
+ * Resolve raw asset data to human-readable field names and relation values.
+ *
+ * Used by platform-scoped endpoints (databridge:get, search, getSchemaConformant).
+ *
+ * Transformation rules:
+ * 1. Field names: f_nvu6tnxv3sh -> normalize(field.options.title) -> franka_hand_gripper
+ * 2. Relation values: With appends, relations are loaded as full objects -> extract "name" field
+ * 3. Non-relation values: Keep as-is (just rename the key)
+ */
+export function resolveDataPlatform(collection: Collection, rawData: Record<string, unknown>): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  const fields = collection.getFields();
+
+  for (const field of fields) {
+    const rawValue = rawData[field.name];
+    if (rawValue === undefined) continue;
+
+    // Skip auto-generated FK fields (no title, name starts with f_)
+    // These are redundant when we have the resolved relation
+    const title = field.options?.title;
+    if (!title && field.name.startsWith('f_')) continue;
+
+    const key = normalizeFieldName(title || field.name);
+
+    if (field.isRelationField() && rawValue != null) {
+      // With appends, rawValue is the full related object (not just an ID)
+      if (Array.isArray(rawValue)) {
+        // hasMany/belongsToMany - extract names from array
+        resolved[key] = rawValue.map((item) => item?.name ?? item);
+      } else if (typeof rawValue === 'object' && rawValue !== null) {
+        // belongsTo/hasOne - extract name from single object
+        resolved[key] = (rawValue as Record<string, unknown>).name ?? rawValue;
+      } else {
+        resolved[key] = rawValue;
+      }
+    } else {
+      resolved[key] = rawValue;
+    }
+  }
+
+  return resolved;
 }

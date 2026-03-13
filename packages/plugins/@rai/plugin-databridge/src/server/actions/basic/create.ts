@@ -10,6 +10,7 @@ import {
   validateFieldValues,
   ValidationError,
 } from '../../utils/field-mapping';
+import { validateBatchSize } from '../../utils/pagination';
 
 interface BasicCreateResult {
   created: number[];
@@ -36,6 +37,9 @@ export async function basicCreate(ctx: Context, next: Next) {
     ctx.throw(400, (validation as { valid: false; error: string }).error);
     return;
   }
+
+  // Enforce batch size limit
+  validateBatchSize(ctx, validation.assets as BasicAssetPayload[]);
 
   const assets = validation.assets as BasicAssetPayload[];
   const createdIds: number[] = [];

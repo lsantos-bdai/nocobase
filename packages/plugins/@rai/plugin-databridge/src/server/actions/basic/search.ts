@@ -2,6 +2,7 @@ import { Context, Next } from '@nocobase/actions';
 import { Collection, Field } from '@nocobase/database';
 import { resolveCollectionBasic } from '../../utils/resolve-collection-basic';
 import { resolveDataBasic } from '../../utils/fetch-assets-basic';
+import { parsePaginationParams, buildPaginatedMeta } from '../../utils/pagination';
 import { BasicAssetPayload } from '../../types/basic-asset-payload';
 
 /**
@@ -55,18 +56,22 @@ function buildSearchFilter(collection: Collection, searchTerm: string): object |
  * Search action for databridgeBasic — text search on a single collection (platform-free).
  *
  * Always searches all text fields + relation `.name` paths.
- * Returns list[BasicAssetPayload] with relation descriptors.
+ * Returns paginated BasicAssetPayload items with relation descriptors.
  *
  * Query parameters:
  * - collection: Collection name or title (required, case-insensitive)
  * - q: Search term (required)
- * - limit: Max results (default 10, max 100)
+ * - page: Page number (default 1)
+ * - pageSize: Items per page (default 50, max 300)
+ *
+ * Response: { data: BasicAssetPayload[], meta: { page, pageSize, count, totalPage } }
  */
 export async function basicSearch(ctx: Context, next: Next) {
-  const { collection, q, limit } = ctx.request.query as {
+  const { collection, q, page: pageStr, pageSize: pageSizeStr } = ctx.request.query as {
     collection?: string;
     q?: string;
-    limit?: string;
+    page?: string;
+    pageSize?: string;
   };
 
   if (!collection) {
@@ -78,7 +83,9 @@ export async function basicSearch(ctx: Context, next: Next) {
   }
 
   const searchTerm = q.trim();
-  const maxResults = Math.min(parseInt(limit || '10', 10), 100);
+
+  // Parse and validate pagination
+  const { page, pageSize } = parsePaginationParams(ctx, pageStr, pageSizeStr);
 
   // Resolve collection
   const collectionName = await resolveCollectionBasic(ctx, ctx.db, collection);
@@ -94,7 +101,10 @@ export async function basicSearch(ctx: Context, next: Next) {
   // Build search filter across all searchable fields
   const searchFilter = buildSearchFilter(coll, searchTerm);
   if (!searchFilter) {
-    ctx.body = [];
+    ctx.body = {
+      data: [],
+      meta: buildPaginatedMeta(page, pageSize, 0),
+    };
     ctx.withoutDataWrapping = true;
     return next();
   }
@@ -105,27 +115,34 @@ export async function basicSearch(ctx: Context, next: Next) {
     .filter((f) => f.isRelationField())
     .map((f) => f.name);
 
-  // Query with search filter
-  const assets = await ctx.db.getRepository(collectionName).find({
-    filter: searchFilter as any,
-    appends: relationFields,
-    limit: maxResults,
-  });
+  // Query with search filter: fetch page + total count in parallel
+  const offset = (page - 1) * pageSize;
+  const repo = ctx.db.getRepository(collectionName);
+  const [assets, count] = await Promise.all([
+    repo.find({
+      filter: searchFilter as any,
+      appends: relationFields,
+      limit: pageSize,
+      offset,
+    }),
+    repo.count({ filter: searchFilter as any }),
+  ]);
 
   // Transform to BasicAssetPayload with relation descriptors
-  const results: BasicAssetPayload[] = [];
-
+  const data: BasicAssetPayload[] = [];
   for (const asset of assets) {
     const resolvedData = resolveDataBasic(coll, asset, ctx.db);
-
-    results.push({
+    data.push({
       collection: collectionName,
       collection_title: collectionTitle,
       data: resolvedData,
     });
   }
 
-  ctx.body = results;
+  ctx.body = {
+    data,
+    meta: buildPaginatedMeta(page, pageSize, count),
+  };
   ctx.withoutDataWrapping = true;
 
   await next();

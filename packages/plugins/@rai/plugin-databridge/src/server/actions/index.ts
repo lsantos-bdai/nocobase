@@ -2,7 +2,6 @@ export { get } from './get';
 export { getSchemaConformant } from './get-schema-conformant';
 export { search } from './search';
 export { list } from './list';
-export { indexAssets } from './index-assets';
 export { update } from './update';
 export { create } from './create';
 export { deleteAssets } from './delete';
