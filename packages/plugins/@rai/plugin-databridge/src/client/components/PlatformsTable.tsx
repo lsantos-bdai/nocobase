@@ -25,7 +25,9 @@ export function PlatformsTable() {
         url: 'databridge_platforms:list',
         method: 'get',
       });
-      setPlatforms(response?.data || []);
+      const responseBody = response?.data || {};
+      const data = responseBody.data;
+      setPlatforms(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch platforms:', err);
       setPlatforms([]);

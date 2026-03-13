@@ -32,7 +32,8 @@ export function ManageModal({ open, platform, onClose, onSuccess }: ManageModalP
           method: 'get',
         })
         .then((res) => {
-          const data: CollectionInfo[] = res?.data || [];
+          const responseBody = res?.data || {};
+          const data: CollectionInfo[] = Array.isArray(responseBody.data) ? responseBody.data : [];
           setCollections(data);
           // Pre-check synced collections
           const synced = new Set(data.filter((c) => c.isSynced).map((c) => c.name));

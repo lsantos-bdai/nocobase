@@ -33,7 +33,7 @@ export function ViewModal({ open, platform, onClose }: ViewModalProps) {
         setPagination({
           page: meta?.page || 1,
           pageSize: meta?.pageSize || DEFAULT_PAGE_SIZE,
-          total: meta?.total || 0,
+          total: meta?.count || 0,
         });
       } catch (err) {
         console.error('Failed to fetch entries:', err);
@@ -66,7 +66,7 @@ export function ViewModal({ open, platform, onClose }: ViewModalProps) {
         Total entries: <strong>{pagination.total}</strong>
       </p>
       <Table
-        rowKey="id"
+        rowKey="name"
         loading={loading}
         dataSource={entries}
         columns={columns}

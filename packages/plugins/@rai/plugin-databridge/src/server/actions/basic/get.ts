@@ -162,12 +162,13 @@ export async function basicGet(ctx: Context, next: Next) {
       const resolvedData = resolveDataBasic(entry.collection, entry.record, ctx.db);
 
       // Apply user-requested fields filter if provided
+      // Use parsedFields (user-facing normalized names) since resolveDataBasic
+      // outputs keys as normalizeFieldName(title || field.name), not internal DB names.
       let finalData = resolvedData;
-      if (internalFields) {
+      if (parsedFields) {
         finalData = {};
         for (const [k, v] of Object.entries(resolvedData)) {
-          // Always include id; include field if it's in the requested set
-          if (k === 'id' || internalFields.includes(k)) {
+          if (k === 'id' || parsedFields.includes(k)) {
             finalData[k] = v;
           }
         }
@@ -190,11 +191,15 @@ export async function basicGet(ctx: Context, next: Next) {
   } else {
     // ── Standard paginated query (no relations) ──
 
-    // Get relation fields for appends (eager-load related objects for RelationDescriptor)
-    const relationFields = coll
+    // Get relation fields for appends (eager-load related objects for RelationDescriptor).
+    // When fields filter is active, only eager-load relations the user actually requested.
+    const allRelationFields = coll
       .getFields()
       .filter((f) => f.isRelationField())
       .map((f) => f.name);
+    const relationFields = internalFields
+      ? allRelationFields.filter((name) => internalFields.includes(name))
+      : allRelationFields;
 
     // Build find options
     const offset = (page - 1) * pageSize;
@@ -224,10 +229,23 @@ export async function basicGet(ctx: Context, next: Next) {
     const data: BasicAssetPayload[] = [];
     for (const asset of assets) {
       const resolvedData = resolveDataBasic(coll, asset, ctx.db);
+
+      // Post-filter by user-requested fields (parsedFields = user-facing normalized names,
+      // which match the keys output by resolveDataBasic).
+      let finalData = resolvedData;
+      if (parsedFields) {
+        finalData = {};
+        for (const [k, v] of Object.entries(resolvedData)) {
+          if (k === 'id' || parsedFields.includes(k)) {
+            finalData[k] = v;
+          }
+        }
+      }
+
       data.push({
         collection: collectionName,
         collection_title: collectionTitle,
-        data: resolvedData,
+        data: finalData,
       });
     }
 
