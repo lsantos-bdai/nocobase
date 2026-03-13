@@ -29,6 +29,6 @@ export interface LookupEntry {
 
 export interface SyncResult {
   synced: number;
-  collections: number;
+  collections: string[];
   errors?: string[];
 }

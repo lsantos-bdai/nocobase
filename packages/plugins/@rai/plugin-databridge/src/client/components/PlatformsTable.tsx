@@ -89,7 +89,7 @@ export function PlatformsTable() {
         setSyncResult({ synced, collections, errors });
         setSyncErrorsModalOpen(true);
       } else {
-        message.success(`Synced ${synced} records from ${collections} collections`);
+        message.success(`Synced ${synced} records from ${collections?.length || 0} collections`);
       }
     } catch (err: any) {
       message.error(err.response?.data?.errors?.[0]?.message || 'Failed to sync');

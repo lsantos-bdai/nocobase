@@ -51,8 +51,8 @@ export function SyncErrorsModal({ open, result, onClose }: SyncErrorsModalProps)
     >
       <div style={{ marginBottom: 16 }}>
         <Text type="success">
-          Successfully synced {result.synced} record{result.synced !== 1 ? 's' : ''} from {result.collections}{' '}
-          collection{result.collections !== 1 ? 's' : ''}.
+          Successfully synced {result.synced} record{result.synced !== 1 ? 's' : ''} from {result.collections.length}{' '}
+          collection{result.collections.length !== 1 ? 's' : ''}.
         </Text>
       </div>
 

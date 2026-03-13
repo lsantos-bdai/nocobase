@@ -1441,7 +1441,7 @@ export default {
                   type: 'object',
                   properties: {
                     synced: { type: 'integer', description: 'Number of lookup entries created' },
-                    collections: { type: 'integer', description: 'Number of collections registered' },
+                    collections: { type: 'array', items: { type: 'string' }, description: 'Collection names registered' },
                   },
                 },
               },
@@ -1495,7 +1495,7 @@ export default {
                   type: 'object',
                   properties: {
                     removed: { type: 'integer', description: 'Number of lookup entries deleted' },
-                    collections: { type: 'integer', description: 'Number of collections unregistered' },
+                    collections: { type: 'array', items: { type: 'string' }, description: 'Collection names unregistered' },
                   },
                 },
               },

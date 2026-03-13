@@ -17,7 +17,7 @@ export async function syncAll(ctx: Context, next: Next) {
   const collectionNames: string[] = Array.from(new Set(entries.map((e: any) => String(e.collection))));
 
   if (collectionNames.length === 0) {
-    ctx.body = { synced: 0, collections: 0 };
+    ctx.body = { synced: 0, collections: [] };
     ctx.withoutDataWrapping = true;
     await next();
     return;
@@ -55,7 +55,7 @@ export async function syncAll(ctx: Context, next: Next) {
 
   ctx.body = {
     synced: totalSynced,
-    collections: collectionNames.length,
+    collections: collectionNames,
     errors: allErrors.length > 0 ? allErrors : undefined,
   };
 

@@ -7,6 +7,7 @@ import {
   getCollectionTitles,
   updateRegisteredCollections,
   validateCollectionHasNameField,
+  resolveCollectionBasic,
 } from '../utils';
 import {
   collectRecordsFromCollections,
@@ -34,19 +35,22 @@ export async function addPlatformCollections(ctx: Context, next: Next) {
   await syncLookupCollection(ctx, platformRecord);
   const lookupRepo = await getLookupRepoOrThrow(ctx, platformRecord);
 
-  // Validate all collections exist and have 'name' field
+  // Resolve collection names (supports case-insensitive title matching)
+  const resolvedCollections: string[] = [];
   for (const collName of collections) {
-    validateCollectionHasNameField(ctx, collName);
+    const resolved = await resolveCollectionBasic(ctx, ctx.db, collName);
+    validateCollectionHasNameField(ctx, resolved);
+    resolvedCollections.push(resolved);
   }
 
   // Collect all records from collections being added
-  const newRecords = await collectRecordsFromCollections(ctx.db, collections);
+  const newRecords = await collectRecordsFromCollections(ctx.db, resolvedCollections);
 
   // Check for internal duplicates (same name in multiple selected collections)
   const internalDuplicates = findInternalDuplicates(newRecords);
 
   // Check for external duplicates (conflicts with existing entries)
-  const externalDuplicates = await findExternalDuplicates(lookupRepo, newRecords, collections);
+  const externalDuplicates = await findExternalDuplicates(lookupRepo, newRecords, resolvedCollections);
 
   if (internalDuplicates.length > 0 || externalDuplicates.length > 0) {
     const allCollNames = new Set<string>();
@@ -74,24 +78,24 @@ export async function addPlatformCollections(ctx: Context, next: Next) {
     throw new DuplicateNamesError(duplicates);
   }
 
-  const collectionTitles = await getCollectionTitles(ctx.db, collections);
+  const collectionTitles = await getCollectionTitles(ctx.db, resolvedCollections);
 
   // Clear existing entries for collections being added (re-sync)
   await lookupRepo.destroy({
-    filter: { collection: { $in: collections } },
+    filter: { collection: { $in: resolvedCollections } },
   });
 
   const synced = await insertRecordsToLookup(lookupRepo, newRecords, collectionTitles);
 
-  await updateRegisteredCollections(ctx, platformIdentifier, collections, []);
+  await updateRegisteredCollections(ctx, platformIdentifier, resolvedCollections, []);
 
   // Register hooks for newly added collections
   const databridgePlugin = ctx.app.pm.get('@rai/plugin-databridge') as PluginDatabridgeServer;
-  for (const collName of collections) {
+  for (const collName of resolvedCollections) {
     databridgePlugin.registerCollectionHooks(collName);
   }
 
-  ctx.body = { synced, collections: collections.length };
+  ctx.body = { synced, collections: resolvedCollections };
   ctx.withoutDataWrapping = true;
   await next();
 }
