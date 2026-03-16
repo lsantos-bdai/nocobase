@@ -8,26 +8,20 @@
  */
 
 /**
- * Export Action
+ * List Pages Action
  *
- * GET /api/ui-snapshot:export?path=EngOps/Workstations
+ * GET /api/ui-snapshot:listPages
  *
- * Exports a single UI page as a complete FlowModel snapshot.
+ * Returns all routable page paths with their route IDs and schema UIDs.
  */
 import { Context, Next } from '@nocobase/actions';
 import { PageExporter } from '../services/page-exporter';
 
-export async function exportPage(ctx: Context, next: Next) {
-  const { path } = ctx.action.params;
-
-  if (!path || typeof path !== 'string') {
-    ctx.throw(400, 'Missing required query parameter: path');
-  }
-
+export async function listPages(ctx: Context, next: Next) {
   const exporter = new PageExporter(ctx.db);
-  const snapshot = await exporter.exportByPath(path);
+  const pages = await exporter.getAllPagePaths();
 
-  ctx.body = snapshot;
+  ctx.body = { pages };
   ctx.withoutDataWrapping = true;
 
   await next();

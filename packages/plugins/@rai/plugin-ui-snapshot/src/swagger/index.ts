@@ -56,6 +56,25 @@ export default {
           },
         },
       },
+      PageInfo: {
+        type: 'object',
+        description: 'Page route information',
+        required: ['path', 'routeId', 'schemaUid'],
+        properties: {
+          path: { type: 'string', description: 'Route path (e.g., "EngOps/Workstations")' },
+          routeId: { type: 'integer', description: 'Desktop route ID' },
+          schemaUid: { type: 'string', description: 'Root schema UID for the page' },
+        },
+      },
+      ListPagesResponse: {
+        type: 'object',
+        properties: {
+          pages: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/PageInfo' },
+          },
+        },
+      },
       TemplateRecord: {
         type: 'object',
         description: 'Block template metadata from flowModelTemplates table',
@@ -111,7 +130,7 @@ export default {
           flowModelsDeleted: { type: 'integer' },
         },
       },
-      ErrorResponse: {
+      UiSnapshotErrorResponse: {
         type: 'object',
         properties: {
           error: { type: 'string' },
@@ -121,9 +140,53 @@ export default {
     },
   },
   paths: {
+    '/ui-snapshot:listPages': {
+      get: {
+        tags: ['ui-snapshot'],
+        operationId: 'listPages',
+        summary: 'List all pages',
+        description: 'Returns all routable page paths with their route IDs and schema UIDs.',
+        responses: {
+          200: {
+            description: 'List of pages',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ListPagesResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/ui-snapshot:export': {
+      get: {
+        tags: ['ui-snapshot'],
+        operationId: 'exportPage',
+        summary: 'Export page',
+        description: 'Exports a page as a lossless PageSnapshot. Can be directly used with create endpoint.',
+        parameters: [
+          {
+            name: 'path',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Route path of the page to export (e.g., "EngOps/Workstations")',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Page snapshot',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/PageSnapshot' } } },
+          },
+          400: { description: 'Missing required query parameter: path' },
+          404: { description: 'Page not found' },
+        },
+      },
+    },
     '/ui-snapshot:create': {
       post: {
         tags: ['ui-snapshot'],
+        operationId: 'createPage',
         summary: 'Create page from snapshot',
         description: 'Creates a page from a PageSnapshot (same format as export). UIDs are remapped to avoid conflicts.',
         parameters: [
@@ -156,7 +219,9 @@ export default {
     '/ui-snapshot:delete': {
       post: {
         tags: ['ui-snapshot'],
+        operationId: 'deletePage',
         summary: 'Delete page',
+        description: 'Deletes a page by route path, removing the route entry and all associated FlowModels.',
         parameters: [
           {
             name: 'path',
@@ -176,31 +241,10 @@ export default {
         },
       },
     },
-    '/ui-snapshot:export': {
-      get: {
-        tags: ['ui-snapshot'],
-        summary: 'Export page',
-        description: 'Exports a page as a lossless PageSnapshot. Can be directly used with create endpoint.',
-        parameters: [
-          {
-            name: 'path',
-            in: 'query',
-            required: true,
-            schema: { type: 'string' },
-          },
-        ],
-        responses: {
-          200: {
-            description: 'Page snapshot',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/PageSnapshot' } } },
-          },
-          404: { description: 'Page not found' },
-        },
-      },
-    },
     '/ui-snapshot:exportTemplates': {
       get: {
         tags: ['ui-snapshot-templates'],
+        operationId: 'exportTemplates',
         summary: 'Export all block templates',
         description:
           'Exports all block templates (flowModelTemplates) with their full flowModel trees. ' +
@@ -225,6 +269,7 @@ export default {
     '/ui-snapshot:importTemplates': {
       post: {
         tags: ['ui-snapshot-templates'],
+        operationId: 'importTemplate',
         summary: 'Import a block template',
         description:
           'Imports a single block template with its full flowModel tree. ' +

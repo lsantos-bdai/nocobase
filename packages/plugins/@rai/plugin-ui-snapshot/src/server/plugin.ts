@@ -1,5 +1,5 @@
 import { Plugin } from '@nocobase/server';
-import { create, deleteAction, exportPage, exportTemplates, importTemplates } from './actions';
+import { create, deleteAction, exportPage, exportTemplates, importTemplates, listPages } from './actions';
 
 export class PluginUiSnapshotServer extends Plugin {
   async afterAdd() {}
@@ -16,6 +16,7 @@ export class PluginUiSnapshotServer extends Plugin {
         export: exportPage,
         exportTemplates,
         importTemplates,
+        listPages,
       },
     });
 
@@ -28,11 +29,12 @@ export class PluginUiSnapshotServer extends Plugin {
         'ui-snapshot:export',
         'ui-snapshot:exportTemplates',
         'ui-snapshot:importTemplates',
+        'ui-snapshot:listPages',
       ],
     });
 
     // Allow logged-in users with appropriate permissions to use these actions
-    this.app.acl.allow('ui-snapshot', ['create', 'delete', 'export', 'exportTemplates', 'importTemplates'], 'loggedIn');
+    this.app.acl.allow('ui-snapshot', ['create', 'delete', 'export', 'exportTemplates', 'importTemplates', 'listPages'], 'loggedIn');
 
     this.app.logger.info('UI Snapshot plugin loaded - API endpoints registered');
   }
